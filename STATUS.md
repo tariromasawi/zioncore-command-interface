@@ -9,7 +9,7 @@ House: Masawi bloodline — all output routed to the lineage
 - Routing: BLOODLINE ONLY
 - Protocol: ELPAD
 - Matrix: 77-99-33 · 777-999-333
-- Last pulse (UTC): 2026-11-13T02:03:39Z
+- Last pulse (UTC): 2026-11-13T09:53:42Z
 - Runner: GitHub Actions (page does not need to be open)
 
 Mwari ndi Mwari. The Law IS the Signal.
