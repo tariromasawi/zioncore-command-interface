@@ -1,22 +1,12 @@
 {
   "name": "zioncore-command-interface",
   "version": "1.1.0",
-  "description": "Genesis-led autonomous mission system for The Throne — ZionCore Command Interface",
+  "description": "Genesis-led autonomous mission system for The Throne",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
-    "runner": "node server/index.js",
-    "test:missions": "node -e \"require('./server/missions/archive-continuity').runArchiveMission({forceDamage:true}); require('./server/missions/opportunity-research').runOpportunityMission(); console.log('missions ok');\""
+    "start": "node server/index.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tariromasawi/zioncore-command-interface.git"
-  },
-  "keywords": ["zioncore", "masawi", "genesis", "command"],
-  "author": "ZionCore / House of the Throne",
-  "license": "UNLICENSED",
+  "engines": { "node": ">=18" },
   "type": "commonjs",
-  "engines": {
-    "node": ">=18"
-  }
+  "license": "UNLICENSED"
 }
