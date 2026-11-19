@@ -1,33 +1,44 @@
+/**
+ * Minimal sign-in for private command dashboard.
+ * Demo tokens only — not for production secrets.
+ */
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+
 const TOKENS_FILE = path.join(__dirname, '..', 'data', 'sessions.json');
+
+// password for both is "MKEY-MNM-001-TAC-2024" (demo only)
 const DEMO_USERS = {
   commander: {
-    passwordHash: hash('masawi-throne-77'),
+    passwordHash: hash('MKEY-MNM-001-TAC-2024'),
     role: 'commander',
     displayName: 'His Royal Highness, Saint Tariro Masawi'
   },
   heir: {
-    passwordHash: hash('masawi-throne-77'),
+    passwordHash: hash('MKEY-MNM-001-TAC-2024'),
     role: 'heir',
     displayName: 'HRH Tarry Kupakwashe Masawi'
   }
 };
+
 function hash(s) {
   return crypto.createHash('sha256').update(s + '|zioncore-demo-salt').digest('hex');
 }
+
 function loadSessions() {
   try {
     if (fs.existsSync(TOKENS_FILE)) return JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
   } catch {}
   return {};
 }
+
 function saveSessions(sessions) {
   const dir = path.dirname(TOKENS_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(TOKENS_FILE, JSON.stringify(sessions, null, 2));
 }
+
 function createSession(username) {
   const user = DEMO_USERS[username];
   if (!user) return null;
@@ -43,6 +54,7 @@ function createSession(username) {
   saveSessions(sessions);
   return { token, ...sessions[token] };
 }
+
 function validateToken(token) {
   if (!token) return null;
   const sessions = loadSessions();
@@ -55,16 +67,19 @@ function validateToken(token) {
   }
   return s;
 }
+
 function destroySession(token) {
   const sessions = loadSessions();
   delete sessions[token];
   saveSessions(sessions);
 }
+
 function authenticate(username, password) {
   const user = DEMO_USERS[username];
   if (!user || user.passwordHash !== hash(password)) return null;
   return createSession(username);
 }
+
 function getTokenFromRequest(req) {
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
@@ -73,4 +88,5 @@ function getTokenFromRequest(req) {
   if (match) return match[1];
   return null;
 }
+
 module.exports = { authenticate, validateToken, destroySession, getTokenFromRequest, DEMO_USERS };
