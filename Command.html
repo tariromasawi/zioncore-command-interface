@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>ZionCore · Masawi Command</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #101411;
+    --panel: #19211b;
+    --line: #39483c;
+    --text: #f1f4eb;
+    --muted: #bbc8ba;
+    --gold: #f3d897;
+    --green: #c2e9a9;
+    --amber: #ffdb98;
+    --red: #ffc0b7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(ellipse at top right, #2b3c2e, transparent 45rem), var(--bg);
+    color: var(--text);
+    font: 1rem/1.55 system-ui, sans-serif;
+  }
+  a { color: var(--green); }
+  button, select { font: inherit; }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+  .skip { position: absolute; top: .5rem; left: .5rem; transform: translateY(-200%); }
+  .skip:focus { transform: none; background: var(--bg); padding: .5rem; z-index: 1; }
+  .shell { width: min(100% - 2rem, 76rem); margin: auto; }
+  .mast, .toolbar, .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+  .mast { padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
+  nav { display: flex; gap: .9rem; flex-wrap: wrap; }
+  nav a { display: inline-flex; align-items: center; min-height: 44px; }
+  .brand { letter-spacing: .14em; font-weight: 800; }
+  .hero { padding: clamp(2rem, 7vw, 5rem) 0 1.25rem; }
+  .eyebrow { color: var(--gold); font-size: .85rem; letter-spacing: .12em; }
+  h1, h2, h3, p { margin-top: 0; }
+  h1 {
+    font: clamp(2.75rem, 8vw, 5.7rem)/.98 Georgia, serif;
+    letter-spacing: -.045em;
+    margin-bottom: .9rem;
+  }
+  h2 { font: 2rem/1.16 Georgia, serif; margin-bottom: 1rem; }
+  h3 { font-size: 1.06rem; margin-bottom: .45rem; }
+  .lede { max-width: 42rem; }
+  .muted, dt { color: var(--muted); }
+  .toolbar, .card, .metric {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: .9rem;
+    padding: 1rem;
+    overflow-wrap: anywhere;
+  }
+  .toolbar p, .metric p, .card > :last-child { margin-bottom: 0; }
+  button, select {
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    padding: .4rem .75rem;
+  }
+  button { color: #142014; background: var(--green); font-weight: 750; cursor: pointer; }
+  button:disabled { opacity: .65; cursor: wait; }
+  select { color: var(--text); background: var(--panel); max-width: 100%; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    gap: .7rem;
+    margin-top: .7rem;
+  }
+  .metric p:last-child { margin-top: .2rem; font-weight: 700; }
+  section { margin: 2.25rem 0; scroll-margin-top: 1rem; }
+  .columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1rem; }
+  .stack { display: grid; gap: .65rem; }
+  .pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .15rem .55rem;
+    font-size: .82rem;
+    font-weight: 700;
+    color: var(--green);
+  }
+  .pill[data-level="watch"] { color: var(--amber); }
+  .pill[data-level="urgent"] { color: var(--red); }
+  dl { margin: .85rem 0 0; }
+  dt { font-size: .85rem; margin-top: .65rem; }
+  dd { margin: .15rem 0 0; }
+  details { margin-top: .85rem; }
+  summary { cursor: pointer; min-height: 44px; padding: .5rem 0; color: var(--green); }
+  .filter { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  footer { border-top: 1px solid var(--line); padding: 1rem 0 2rem; }
+  @media (max-width: 760px) {
+    .columns { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to operations</a>
+
+<header class="mast shell">
+  <div class="brand">ZIONCORE</div>
+  <nav aria-label="Command sections">
+    <a href="#warnings">Warnings</a>
+    <a href="#activity">Activity</a>
+    <a href="#advice">Advice</a>
+  </nav>
+</header>
+
+<main id="main" class="shell" tabindex="-1">
+  <div class="hero">
+    <p class="eyebrow">MWARI NDI MWARI · VISION YEAR 80,000</p>
+    <h1>Masawi Command</h1>
+    <p class="lede muted">Review early warnings, follow ZionCore’s work and see the evidence behind each recommendation.</p>
+  </div>
+
+  <div class="toolbar">
+    <p id="connection" role="status">Checking connection…</p>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+
+  <div class="stats" aria-label="System status">
+    <div class="metric"><p class="muted">Runner</p><p id="runner">Unavailable</p></div>
+    <div class="metric"><p class="muted">Current task</p><p id="task">Unavailable</p></div>
+    <div class="metric"><p class="muted">Last successful run</p><p id="lastRun">Unavailable</p></div>
+    <div class="metric"><p class="muted">Genesis version</p><p id="genesis">Unavailable</p></div>
+  </div>
+
+  <div class="columns">
+    <section id="warnings" aria-labelledby="warningHeading">
+      <div class="meta">
+        <h2 id="warningHeading">Early warnings</h2>
+        <div class="filter">
+          <label for="category">Category</label>
+          <select id="category">
+            <option value="all">All categories</option>
+            <option value="digital">Digital</option>
+            <option value="physical">Physical safety</option>
+            <option value="continuity">Family continuity</option>
+            <option value="wellbeing">Wellbeing</option>
+          </select>
+        </div>
+      </div>
+      <div id="alerts" class="stack"></div>
+    </section>
+
+    <section id="activity" aria-labelledby="activityHeading">
+      <h2 id="activityHeading">What ZionCore is doing</h2>
+      <div id="events" class="stack"></div>
+    </section>
+  </div>
+
+  <section id="advice" aria-labelledby="adviceHeading">
+    <h2 id="adviceHeading">Advice and next steps</h2>
+    <div id="recommendations" class="stack"></div>
+  </section>
+
+  <section aria-labelledby="faithHeading">
+    <h2 id="faithHeading">Faith and reflection</h2>
+    <p class="muted">A place for Masowe prayer and reflection. Personal spiritual concerns can guide reflection. Operational warnings require independently checkable evidence.</p>
+  </section>
+</main>
+
+<footer class="shell muted">ZionCore Genesis · House of Masawi</footer>
+
+<script>
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const endpoint = '/api/command/overview';
+  const preview = location.protocol === 'file:' || location.hostname.endsWith('.github.io');
+  const labels = {
+    digital: 'Digital',
+    physical: 'Physical safety',
+    continuity: 'Family continuity',
+    wellbeing: 'Wellbeing'
+  };
+  const priorities = { urgent: 0, watch: 1, info: 2 };
+  const runnerLabels = { idle: 'Idle', running: 'Running', paused: 'Paused', degraded: 'Degraded' };
+  const formatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  let overview = null;
+  let loading = false;
+
+  const sample = {
+    schemaVersion: 2,
+    genesisVersion: 'Sample charter',
+    lastSuccessfulRun: null,
+    runnerState: 'idle',
+    currentTask: 'Preview of an archive restore check',
+    alerts: [{
+      category: 'continuity',
+      severity: 'watch',
+      title: 'One backup copy failed verification',
+      observed: 'In this example, one archive copy did not match its recorded checksums.',
+      forecast: 'Recovery could fail if the remaining verified copy becomes unavailable.',
+      horizon: 'Before the next restore drill',
+      confidence: 'Limited. Only one verification run is available.',
+      action: 'ZionCore is preparing an isolated restore test in this example.',
+      advice: 'Keep the verified copy available until the restored files pass validation.',
+      evidence: [{ title: 'Example archive verification record' }]
+    }],
+    activities: [{
+      stage: 'Verifying',
+      title: 'Comparing restored files with the archive manifest',
+      summary: 'This example shows the verification stage before a recovery result is recorded.',
+      at: null
+    }],
+    recommendations: [{
+      title: 'Verify recovery before replacing a backup',
+      summary: 'Run a restore drill, compare file hashes and retain the original copy until the check succeeds.'
+    }]
+  };
+
+  function string(value, fallback = '') {
+    return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+  }
+
+  function date(value, fallback) {
+    const timestamp = typeof value === 'string' ? Date.parse(value) : NaN;
+    return Number.isFinite(timestamp) ? formatter.format(timestamp) : fallback;
+  }
+
+  function list(value) {
+    return Array.isArray(value)
+      ? value.slice(0, 100).filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      : [];
+  }
+
+  function element(tag, value, className) {
+    const node = document.createElement(tag);
+    if (value) node.textContent = value;
+    if (className) node.className = className;
+    return node;
+  }
+
+  function renderList(id, items, makeCard, emptyText) {
+    const root = $(id);
+    root.replaceChildren();
+    if (!items.length) {
+      root.append(element('p', emptyText, 'muted'));
+      return;
+    }
+    root.append(...items.map(makeCard));
+  }
+
+  function addField(listNode, title, value) {
+    const text = string(value);
+    if (text) listNode.append(element('dt', title), element('dd', text));
+  }
+
+  function evidenceLink(item) {
+    const title = string(item.title, 'Evidence record');
+    let url;
+    try { url = new URL(string(item.url)); } catch { return element('span', title); }
+    if (url.protocol !== 'https:') return element('span', title);
+    const link = element('a', title);
+    link.href = url.href;
+    link.referrerPolicy = 'no-referrer';
+    return link;
+  }
+
+  function alertCard(item) {
+    const card = element('article', '', 'card');
+    const header = element('div', '', 'meta');
+    const level = Object.hasOwn(priorities, item.severity) ? item.severity : 'info';
+    const category = Object.hasOwn(labels, item.category) ? labels[item.category] : 'General';
+    const badge = element('span', level.toUpperCase(), 'pill');
+    badge.dataset.level = level;
+    header.append(element('span', category, 'muted'), badge);
+    card.append(header, element('h3', string(item.title, 'Risk assessment')));
+
+    const fields = element('dl');
+    addField(fields, 'Observed', item.observed);
+    addField(fields, 'Possible next development', item.forecast);
+    addField(fields, 'Time horizon', item.horizon);
+    addField(fields, 'Confidence and limits', item.confidence);
+    addField(fields, 'What ZionCore is doing', item.action);
+    addField(fields, 'Recommended next step', item.advice);
+    card.append(fields);
+
+    const evidence = list(item.evidence).slice(0, 8);
+    if (evidence.length) {
+      const details = element('details');
+      const sources = element('ul');
+      for (const source of evidence) {
+        const row = element('li');
+        row.append(evidenceLink(source));
+        sources.append(row);
+      }
+      details.append(element('summary', 'Review evidence'), sources);
+      card.append(details);
+    }
+    return card;
+  }
+
+  function activityCard(item) {
+    const card = element('article', '', 'card');
+    card.append(
+      element('p', string(item.stage, 'Recorded') + ' · ' + date(item.at, 'No timestamp'), 'muted'),
+      element('h3', string(item.title, 'Mission update')),
+      element('p', string(item.summary))
+    );
+    return card;
+  }
+
+  function adviceCard(item) {
+    const card = element('article', '', 'card');
+    card.append(element('h3', string(item.title, 'Recommendation')), element('p', string(item.summary)));
+    if (item.source && typeof item.source === 'object') card.append(evidenceLink(item.source));
+    return card;
+  }
+
+  function renderWarnings() {
+    const category = $('category').value;
+    const warnings = list(overview?.alerts)
+      .filter((item) => category === 'all' || item.category === category)
+      .sort((a, b) => {
+        const rank = (level) => Object.hasOwn(priorities, level) ? priorities[level] : 3;
+        return rank(a.severity) - rank(b.severity);
+      });
+    renderList('alerts', warnings, alertCard,
+      overview ? 'No warnings reported for this view.' : 'Warning feed unavailable.');
+  }
+
+  function render(data) {
+    overview = data;
+    $('runner').textContent = data ? runnerLabels[data.runnerState] : 'Unavailable';
+    $('task').textContent = string(data?.currentTask, data ? 'No task reported' : 'Unavailable');
+    $('lastRun').textContent = date(data?.lastSuccessfulRun, data ? 'No successful run recorded' : 'Unavailable');
+    $('genesis').textContent = string(data?.genesisVersion, 'Unavailable');
+    renderWarnings();
+    renderList('events', list(data?.activities), activityCard,
+      data ? 'No mission activity reported.' : 'Activity feed unavailable.');
+    renderList('recommendations', list(data?.recommendations), adviceCard,
+      data ? 'No recommendations reported.' : 'Recommendations unavailable.');
+  }
+
+  async function refresh(manual = false) {
+    if (loading) return;
+    if (preview) {
+      render(sample);
+      $('connection').textContent = 'Demonstration · All warnings and activity below are examples.';
+      return;
+    }
+    loading = true;
+    $('refresh').disabled = true;
+    if (manual || !overview) $('connection').textContent = 'Checking connection…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(endpoint, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal
+      });
+      if (response.status === 401 || response.status === 403) {
+        render(null);
+        $('connection').textContent = response.status === 401
+          ? 'Sign in to private ZionCore to view operations.'
+          : 'Your account does not have access to these operations.';
+        return;
+      }
+      if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) {
+        throw new Error('Overview unavailable');
+      }
+      const data = await response.json();
+      if (data?.schemaVersion !== 2 || !Object.hasOwn(runnerLabels, data.runnerState)
+          || !['alerts', 'activities', 'recommendations'].every((key) => Array.isArray(data[key]))) {
+        throw new Error('Unsupported response format');
+      }
+      render(data);
+      $('connection').textContent = 'Connected · Refreshes while this page is open.';
+    } catch {
+      render(null);
+      $('connection').textContent = 'Private overview unavailable. Use Refresh to try again.';
+    } finally {
+      clearTimeout(timeout);
+      $('refresh').disabled = false;
+      loading = false;
+    }
+  }
+
+  $('category').addEventListener('change', renderWarnings);
+  $('refresh').addEventListener('click', () => refresh(true));
+  window.addEventListener('pagehide', () => { if (!preview) render(null); });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) refresh(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  if (!preview) setInterval(() => { if (!document.hidden) refresh(); }, 30000);
+  refresh();
+</script>
+</body>
+</html>
