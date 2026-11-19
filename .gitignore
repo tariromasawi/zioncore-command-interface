@@ -1,0 +1,17 @@
+node_modules/
+data/runs/
+data/locks/
+data/sessions.json
+data/outcomes.json
+data/runner-state.json
+data/recovered/
+data/test-archive/*.damaged-*
+data/opportunities/batch-*.json
+data/warnings.json
+data/events.json
+data/masowe-private/
+.env
+.env.*
+*.log
+.DS_Store
+command.html.bak
