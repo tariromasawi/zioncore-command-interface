@@ -1,0 +1,24 @@
+{
+  "charterVersion": "1.1.0-derived",
+  "genesisVersion": "1.1.0",
+  "derivedAt": "2026-11-19T15:00:00Z",
+  "authority": {
+    "primary": "His Royal Highness, Saint Tariro Masawi, The Anointed Commander",
+    "heirs": ["HRH Tarry Kupakwashe Masawi", "Kenzi Masawi"],
+    "bloodline": "Masawi — Makwengura · Masawi · Risto Kasirori Masawi · Sebastian Karumekangu Masawi"
+  },
+  "law": "Mudzimu Unoyera",
+  "matrix": ["77-99-33", "777-999-333"],
+  "creed": "Mwari ndi Mwari",
+  "missionPriorities": [
+    "Protect and advance the Masawi family across generations",
+    "Preserve history and Masowe heritage",
+    "Develop original techniques with measurable benefit",
+    "Ensure Year 80,000 continuity across platform, provider and custodian changes"
+  ],
+  "aiPolicy": {
+    "defaultSpendCapGBP": 0,
+    "allowedProviders": ["openrouter-free"],
+    "privateRecordsPolicy": "never send private family records to hosted models"
+  }
+}
