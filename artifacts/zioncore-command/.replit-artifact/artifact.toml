@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "ZionCore Command"
+description = "A public observatory for ZionCore missions, engine runs, preparedness, and reproducible research."
+version = "1.0.0"
+id = "artifacts/zioncore-command"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20869
+
+[services.development]
+run = "pnpm --filter @workspace/zioncore-command run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/zioncore-command", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/zioncore-command/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20869"
+BASE_PATH = "/"

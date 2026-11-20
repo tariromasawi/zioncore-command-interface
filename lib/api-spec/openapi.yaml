@@ -1,0 +1,153 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+paths:
+  /command/feed:
+    get:
+      operationId: getCommandFeed
+      summary: Public Command results and run history
+      responses:
+        "200":
+          description: Publishable fields only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommandFeed" }
+  /command/suggestions:
+    post:
+      operationId: submitCommandSuggestion
+      summary: Send a private, inert research suggestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SuggestionInput" }
+      responses:
+        "202":
+          description: Accepted for review, not executed or published
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuggestionReceipt" }
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+components:
+  schemas:
+    SuggestionInput:
+      type: object
+      additionalProperties: false
+      required: [programme, text]
+      properties:
+        programme: { type: string, enum: [continuity, prosperity, heritage, preparedness] }
+        text: { type: string, minLength: 20, maxLength: 1000 }
+    SuggestionReceipt:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string }
+        status: { type: string }
+    EngineResult:
+      type: object
+      required: [id, name, programme, status, metric, detail, evidence]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        programme: { type: string }
+        status: { type: string, enum: [measured, example, blocked] }
+        metric: { type: string }
+        detail: { type: string }
+        evidence: { type: array, items: { $ref: "#/components/schemas/Evidence" } }
+    Evidence:
+      type: object
+      required: [label, detail]
+      properties:
+        label: { type: string }
+        detail: { type: string }
+        url: { type: string }
+    Research:
+      type: object
+      required: [title, programme, hypothesis, method, result, failedApproach, next, evidence]
+      properties:
+        title: { type: string }
+        programme: { type: string }
+        hypothesis: { type: string }
+        method: { type: string }
+        result: { type: string }
+        failedApproach: { type: string }
+        next: { type: string }
+        evidence: { type: array, items: { $ref: "#/components/schemas/Evidence" } }
+    Warning:
+      type: object
+      required: [signal, source, outcome, horizon, confidence, action, status]
+      properties:
+        signal: { type: string }
+        source: { type: string }
+        outcome: { type: string }
+        horizon: { type: string }
+        confidence: { type: string }
+        action: { type: string }
+        status: { type: string }
+    Advice:
+      type: object
+      required: [title, why, action, uncertainty]
+      properties:
+        title: { type: string }
+        why: { type: string }
+        action: { type: string }
+        uncertainty: { type: string }
+    CommandRun:
+      type: object
+      required: [id, kind, startedAt, finishedAt, outcome, engines, research, warnings, advice]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        startedAt: { type: string }
+        finishedAt: { type: string }
+        outcome: { type: string }
+        engines: { type: array, items: { $ref: "#/components/schemas/EngineResult" } }
+        research: { type: array, items: { $ref: "#/components/schemas/Research" } }
+        warnings: { type: array, items: { $ref: "#/components/schemas/Warning" } }
+        advice: { type: array, items: { $ref: "#/components/schemas/Advice" } }
+    CommandFeed:
+      type: object
+      required: [state, cadence, nextExpected, genesis, engines, runs]
+      properties:
+        state: { type: string, enum: [live, stale, blocked, example] }
+        cadence: { type: string }
+        nextExpected: { type: [string, "null"] }
+        genesis:
+          type: object
+          required: [status, version, checksum, note]
+          properties:
+            status: { type: string }
+            version: { type: string }
+            checksum: { type: string }
+            note: { type: string }
+        engines: { type: array, items: { $ref: "#/components/schemas/EngineResult" } }
+        runs: { type: array, items: { $ref: "#/components/schemas/CommandRun" } }
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
