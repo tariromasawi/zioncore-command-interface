@@ -9,7 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "runner": "node --enable-source-maps ./dist/jobMain.mjs",
     "knowledge": "node --enable-source-maps ./dist/command/knowledgeMain.mjs",
-    "test": "esbuild test/command.test.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/command.test.mjs && node --test dist/command.test.mjs",
+    "test": "esbuild test/*.test.ts --bundle --packages=external --alias:@workspace/api-zod=../../lib/api-zod/src/index.ts --alias:zod=../../lib/api-zod/node_modules/zod --platform=node --format=esm --outdir=dist/test && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

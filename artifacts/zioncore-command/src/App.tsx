@@ -5,9 +5,11 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { useHashLocation } from 'wouter/use-hash-location';
 import { Shell } from '@/components/shell';
 import Dashboard from '@/pages/dashboard';
 import EnginePage from '@/pages/engine';
+import EnginesPage from '@/pages/engines';
 import ResearchPage from '@/pages/research';
 import RunsPage from '@/pages/runs';
 import RunPage from '@/pages/run';
@@ -24,6 +26,7 @@ function Router() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/command.html" component={Dashboard} />
+          <Route path="/engines" component={EnginesPage} />
           <Route path="/engines/:id" component={EnginePage} />
           <Route path="/research" component={ResearchPage} />
           <Route path="/knowledge" component={KnowledgePage} />
@@ -47,7 +50,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+        <WouterRouter
+          base={import.meta.env.VITE_PAGES === 'true' ? '' : import.meta.env.BASE_URL.replace(/\/$/, '')}
+          hook={import.meta.env.VITE_PAGES === 'true' ? useHashLocation : undefined}
+        >
           <Router />
         </WouterRouter>
         <Toaster />

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, RotateCw, ExternalLink } from "lucide-react";
 import type { Evidence } from "@workspace/api-client-react";
+import { safeHttpsUrl, safeInternalPath } from "@/lib/public-api";
 
 const tone: Record<string, string> = {
   live: "text-primary border-primary/40 bg-primary/10",
@@ -67,13 +68,19 @@ export function EvidenceList({ items }: { items: Evidence[] }) {
         <li key={i} className="p-2.5 text-xs" data-testid={"evidence-" + i}>
           <div className="flex items-center justify-between gap-2">
             <span className="font-mono text-primary">{e.label}</span>
-            {e.url && <a href={e.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">source <ExternalLink className="size-3" /></a>}
+            <EvidenceLink url={e.url} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">source <ExternalLink className="size-3" /></EvidenceLink>
           </div>
           <p className="text-muted-foreground mt-1 break-words">{e.detail}</p>
         </li>
       ))}
     </ul>
   );
+}
+export function EvidenceLink({ url, children, className, fallback = null }: { url?: string; children: ReactNode; className?: string; fallback?: ReactNode }) {
+  const internal = safeInternalPath(url);
+  if (internal) return <Link href={internal} className={className}>{children}</Link>;
+  const external = safeHttpsUrl(url);
+  return external ? <a href={external} target="_blank" rel="noopener noreferrer" className={className}>{children}</a> : fallback;
 }
 export function PageHead({ kicker, title, children }: { kicker: string; title: string; children?: ReactNode }) {
   return (

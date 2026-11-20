@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Opening Command</title></head>
+<body>
+  <p>Opening the requested Command view… <a href="/zioncore-command-interface/">Go to Command</a></p>
+  <script>
+    const base = "/zioncore-command-interface/";
+    const path = location.pathname.startsWith(base) ? location.pathname.slice(base.length).replace(/^\/+|\/+$/g, "") : "";
+    const allowed = /^(engines(?:\/[a-z0-9-]+)?|runs(?:\/[a-z0-9-]+)?|research|knowledge|genesis|continuity)$/i;
+    location.replace(base + "#" + (allowed.test(path) ? "/" + path : "/"));
+  </script>
+</body>
+</html>

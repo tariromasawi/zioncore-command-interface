@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSubmitCommandSuggestion, getGetCommandFeedQueryKey, SuggestionInputProgramme, type CommandFeed } from "@workspace/api-client-react";
 import { useFeed, fmt, dur } from "@/hooks/use-feed";
 import { Panel, StatusChip, Empty, Skeleton, Failure } from "@/components/bits";
+import { apiBase, safeHttpsUrl } from "@/lib/public-api";
 
 const stateCopy: Record<string, string> = {
   live: "Feed is live. Results below come from recorded runs.",
@@ -15,9 +16,60 @@ const stateCopy: Record<string, string> = {
 
 export default function Dashboard() {
   const q = useFeed();
-  if (q.isLoading) return <div className="grid gap-4 lg:grid-cols-3"><div className="lg:col-span-2"><Skeleton rows={6} /></div><Skeleton rows={6} /></div>;
-  if (q.isError || !q.data) return <Failure onRetry={() => q.refetch()} />;
-  return <Board feed={q.data} />;
+  return <div className="space-y-4">
+    {q.isLoading ? <div className="grid gap-4 lg:grid-cols-3"><div className="lg:col-span-2"><Skeleton rows={6} /></div><Skeleton rows={6} /></div>
+      : q.isError || !q.data ? <Failure onRetry={() => q.refetch()} />
+      : <Board feed={q.data} />}
+    <SuggestionStatus />
+  </div>;
+}
+
+const statusCopy: Record<string, string> = {
+  queued: "Awaiting individual review.",
+  accepted: "Reviewed and awaiting item-specific research.",
+  rejected: "Not selected for research.",
+  completed: "Marked complete by a reviewer.",
+};
+
+function SuggestionStatus() {
+  const [id, setId] = useState("");
+  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  const valid = /^[a-zA-Z0-9-]{20,128}$/.test(id.trim());
+  async function checkStatus() {
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${apiBase}/api/command/suggestions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "omit",
+        body: JSON.stringify({ id: id.trim() }),
+      });
+      if (!response.ok) {
+        setMessage(response.status === 404 ? "Receipt not found." : response.status === 429 ? "Too many requests. Try again later." : "Status is unavailable. Try again later.");
+        return;
+      }
+      const result: unknown = await response.json();
+      const status = typeof result === "object" && result !== null && "status" in result ? result.status : undefined;
+      setMessage(typeof status === "string" && Object.hasOwn(statusCopy, status)
+        ? `${status}: ${statusCopy[status]}`
+        : "Status is unavailable. Try again later.");
+    } catch {
+      setMessage("Status is unavailable. Check your connection and try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+  return <Panel kicker="Private receipt" title="Check suggestion status">
+    <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (valid && !pending) void checkStatus(); }}>
+      <label htmlFor="receipt-id" className="block text-[11px] font-mono text-muted-foreground">Receipt ID</label>
+      <input id="receipt-id" value={id} onChange={(event) => { setId(event.target.value); setMessage(""); }} disabled={pending} maxLength={128} autoComplete="off" spellCheck={false} className="w-full bg-input/40 border border-input px-2 py-2 text-base sm:text-sm min-h-11" />
+      <p className="text-[10px] text-muted-foreground">Keep your receipt private. Status lookup does not display your suggestion or resource.</p>
+      <button type="submit" disabled={!valid || pending} className="min-h-11 border border-border px-3 py-2 text-xs font-mono uppercase disabled:opacity-40">{pending ? "Checking" : "Check status"}</button>
+      {message && <p role="status" className="text-xs">{message}</p>}
+    </form>
+  </Panel>;
 }
 
 function Board({ feed }: { feed: CommandFeed }) {
@@ -103,11 +155,11 @@ function Board({ feed }: { feed: CommandFeed }) {
       </Panel>
       <Panel kicker="Knowledge retained" title="Proven methods that run without AI" action={<Link href="/knowledge" className="inline-flex min-h-10 items-center px-2 text-xs text-primary underline">Knowledge base</Link>}>
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Internal replays</dt><dd className="mt-1">{feed.learning.internalMissionRuns} verified</dd></div>
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">External support</dt><dd className="mt-1">{feed.learning.externallyAssistedRuns} runs</dd></div>
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Paid AI calls</dt><dd className="mt-1">{feed.learning.paidAiCalls} · mission calls disabled</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Internal replays</dt><dd className="mt-1">{feed.learning.internalMissionRuns ?? "Not reported"}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">External support</dt><dd className="mt-1">{feed.learning.externallyAssistedRuns ?? "Not reported"}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Paid AI calls</dt><dd className="mt-1">{feed.learning.paidAiCalls ?? "Not reported"}</dd></div>
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">Latest retained method: {feed.learning.latestMethodVersion}. <a href="/api/command/knowledge/export" download className="text-primary underline">Export evidence and method versions</a></p>
+        <p className="mt-2 text-xs text-muted-foreground">Latest retained method: {feed.learning.latestMethodVersion ?? "Not reported"}. <a href={`${apiBase}/api/command/knowledge/export`} className="text-primary underline">Export evidence and method versions</a></p>
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
@@ -141,24 +193,26 @@ function Board({ feed }: { feed: CommandFeed }) {
 
 function SuggestionForm() {
   const qc = useQueryClient();
-  const m = useSubmitCommandSuggestion({ mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getGetCommandFeedQueryKey() }) } });
+  const m = useSubmitCommandSuggestion({ mutation: { onSuccess: () => qc.invalidateQueries({ queryKey: getGetCommandFeedQueryKey() }) }, request: { credentials: "omit" } });
   const [programme, setProgramme] = useState<SuggestionInputProgramme>("continuity");
   const [text, setText] = useState("");
+  const [resource, setResource] = useState("");
   const len = text.trim().length;
-  const ok = len >= 20 && len <= 1000;
+  const validResource = !resource.trim() || Boolean(safeHttpsUrl(resource.trim()));
+  const ok = len >= 20 && len <= 1000 && validResource;
   if (m.data) return (
     <Panel kicker="Private suggestion" title="Receipt">
       <div className="text-xs space-y-2" data-testid="text-receipt" role="status">
         <div className="flex items-center gap-2 text-primary"><Check className="size-4" />Received and stored privately.</div>
         <dl className="font-mono text-[11px] grid grid-cols-[auto_1fr] gap-x-3 gap-y-1"><dt className="text-muted-foreground">id</dt><dd className="break-all">{m.data.id}</dd><dt className="text-muted-foreground">status</dt><dd>{m.data.status}</dd></dl>
         <p className="text-muted-foreground">This note is inert. It does not start, schedule or change any engine run. It is not published.</p>
-        <button onClick={() => { m.reset(); setText(""); }} data-testid="button-new-suggestion" className="text-xs font-mono underline py-2">write another</button>
+        <button onClick={() => { m.reset(); setText(""); setResource(""); }} data-testid="button-new-suggestion" className="text-xs font-mono underline py-2">write another</button>
       </div>
     </Panel>
   );
   return (
     <Panel kicker="Private · inert" title="Suggest a research question">
-      <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (ok) m.mutate({ data: { programme, text: text.trim() } }); }}>
+      <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (ok) m.mutate({ data: { programme, text: text.trim(), ...(resource.trim() ? { resourceUrl: resource.trim() } : {}) } }); }}>
         <label className="block text-[11px] font-mono text-muted-foreground" htmlFor="prog">programme</label>
         <select id="prog" value={programme} onChange={(e) => setProgramme(e.target.value as SuggestionInputProgramme)} data-testid="select-programme" className="w-full bg-input/40 border border-input px-2 py-2 text-base sm:text-sm min-h-11">
           {Object.values(SuggestionInputProgramme).map((p) => <option key={p} value={p}>{p}</option>)}
@@ -166,7 +220,10 @@ function SuggestionForm() {
         <label className="block text-[11px] font-mono text-muted-foreground" htmlFor="sug">suggestion (20–1000 characters)</label>
         <textarea id="sug" rows={4} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} data-testid="input-suggestion" className="w-full bg-input/40 border border-input px-2 py-2 text-base sm:text-sm resize-y" aria-describedby="sug-help" />
         <div id="sug-help" className="flex justify-between text-[10px] font-mono text-muted-foreground"><span>Stored privately. Never triggers a run.</span><span>{len}/1000</span></div>
-        {m.isError && <p role="alert" className="text-xs text-destructive">Could not store the suggestion. Try again.</p>}
+        <label className="block text-[11px] font-mono text-muted-foreground" htmlFor="resource">Public HTTPS resource (optional)</label>
+        <input id="resource" type="url" maxLength={2048} value={resource} onChange={(e) => setResource(e.target.value)} placeholder="https://example.org/resource" className="w-full bg-input/40 border border-input px-2 py-2 text-base sm:text-sm min-h-11" aria-describedby="resource-help" />
+        <p id="resource-help" className="text-[10px] text-muted-foreground">{validResource ? "No credentials or private links; resources are not fetched automatically." : "Use an HTTPS URL without embedded credentials."}</p>
+        {m.isError && <p role="alert" className="text-xs text-destructive">Could not store the suggestion. Check the connection and try again; cross-origin submissions require API CORS support.</p>}
         <button type="submit" disabled={!ok || m.isPending} data-testid="button-submit-suggestion" className="w-full min-h-11 bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider disabled:opacity-40">{m.isPending ? "Storing" : "Send privately"}</button>
       </form>
     </Panel>

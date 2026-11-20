@@ -165,7 +165,7 @@ export function engineResults(input: {
     ["measured",research.programme,"A research question was selected from the approved programme rotation. See the run's method and limits.",research.evidence],
     ["measured","Benefit and limits recorded","This cycle links its methods to preservation, preparedness, research or prosperity. A benefit is not claimed until supported by evidence.",research.evidence],
     ["measured","Public actions limited","The public API cannot launch jobs, mutate infrastructure, publish submissions, or deploy changes."],
-    ["measured",`${processed} proposals triaged${suggestionDirection?`; ${suggestionDirection} selected`:""}`,"Suggestion text remains private. Only a research direction supported by at least three suggestions is used. No submission is executed or published verbatim."],
+    ["measured","No suggestions researched","Private review is separate from this canned research rotation. Submissions and review reasons are not published or executed."],
   ];
   return catalogue.map(([id,name,programme],i)=>{
     const [status,metric,detail,evidence=[]]=results[i]!;

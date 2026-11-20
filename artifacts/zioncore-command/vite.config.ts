@@ -1,11 +1,12 @@
 import path from 'path';
+import { copyFileSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
-const rawPort = process.env.PORT;
+const rawPort = process.env.PORT || '5173';
 
 if (!rawPort) {
   throw new Error(
@@ -19,7 +20,8 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-const basePath = process.env.BASE_PATH;
+const pages = process.env.VITE_PAGES === 'true';
+const basePath = pages ? '/zioncore-command-interface/' : (process.env.BASE_PATH || '/');
 
 if (!basePath) {
   throw new Error(
@@ -33,6 +35,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
+    ...(pages ? [{
+      name: 'pages-command-entry',
+      closeBundle() {
+        const output = path.resolve(import.meta.dirname, 'dist/public');
+        copyFileSync(path.join(output, 'index.html'), path.join(output, 'command.html'));
+        copyFileSync(path.join(output, 'index.html'), path.join(output, 'Command.html'));
+      },
+    } satisfies import('vite').Plugin] : []),
     ...(process.env.NODE_ENV !== 'production' &&
     process.env.REPL_ID !== undefined
       ? [

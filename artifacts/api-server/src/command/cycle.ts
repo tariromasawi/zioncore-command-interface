@@ -8,7 +8,8 @@ import type { CommandStore } from "./store";
 export const periodMs=15*60_000;
 export type CycleKind="preview"|"scheduled"|"daily-review"|"archive-exercise"|"internal-replay";
 
-export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(), opportunityCheck=checkOpportunity) {
+export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(), opportunityCheck=checkOpportunity,
+  gateway:{env?:NodeJS.ProcessEnv;request?:typeof fetch}={}) {
   const slot=kind==="archive-exercise" ? "archive-exercise-v1" : kind==="daily-review" ?
     `daily-${now.toISOString().slice(0,10)}` : kind==="internal-replay" ?
     `internal-replay-${randomUUID()}` : `${kind}-${new Date(Math.floor(+now/periodMs)*periodMs).toISOString().replace(/[:.]/g,"-")}`;
@@ -24,13 +25,7 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
   ]);
   const a=archive.status==="fulfilled"?archive.value:undefined;
   const signal=opportunity.status==="fulfilled"?opportunity.value:"Source could not be reached during this run";
-  const processed=inbox.status==="fulfilled"?inbox.value.reviewed:0;
-  const popular=inbox.status==="fulfilled"?Object.entries(inbox.value.programmeCounts)
-    .filter(([,count])=>count>=3).sort(([leftName,left],[rightName,right])=>right-left||leftName.localeCompare(rightName))[0]?.[0]??null:null;
-  const suggestedDay:Record<string,number>={continuity:0,preparedness:0,heritage:1,prosperity:3};
-  const research=makeResearch(popular?suggestedDay[popular]!:Math.floor(+now/86_400_000),b,a,signal);
-  if(popular)research.evidence.push({label:"Anonymous research direction",
-    detail:`This programme was selected from an aggregate of at least three private suggestions. Submitted text and authors are not published.`});
+  const research=makeResearch(Math.floor(+now/86_400_000),b,a,signal);
   const method=savedMethod??learnContinuity(lease.id,now);
   const evaluation=await evaluateContinuityMethod(method,`${lease.id}-${now.toISOString()}`)
     .then(value=>({outcome:"passed" as const,value}))
@@ -40,9 +35,10 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
     .then(value=>({outcome:"passed" as const,value}))
     .catch(()=>({outcome:"failed" as const,value:null}));
   const missionPassed=evaluation.outcome==="passed"&&evolutionResult.outcome==="passed";
-  // This recurring mission has a verified local method; external calls are
-  // therefore deliberately avoided even if provider keys happen to exist.
-  const ai={status:"blocked" as const,note:"External AI is disabled for this mission. A versioned local method is evaluated on fresh synthetic inputs.",externalAiCalls:0,paidAiCalls:0};
+  const env=gateway.env??process.env;
+  const ai=kind==="daily-review" && env.COMMAND_ENABLE_DAILY_GENESIS==="1"
+    ? await askGenesis({kind,seed:await loadSeed(env),models:configuredModels(env),ledger:store,env,request:gateway.request})
+    : {status:"blocked" as const,note:"External AI is disabled for this run. A versioned local method is evaluated on fresh synthetic inputs.",externalAiCalls:0,paidAiCalls:0,costMicros:0,unresolvedMicros:0};
   const methodEvidence=method.evidence;
   const retainedResearch={
     title:method.title,programme:method.programme,hypothesis:"A stored, checksum-verified preservation method will correctly check a fresh synthetic fixture.",
@@ -64,12 +60,12 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
       knowledgeId:method.id,
       knowledgeReused:!!savedMethod&&!!savedEvolution,
       verification:missionPassed?"passed":"failed",
-      externalAiMode:"disabled",
-      externalAiCalls:0,
-      paidAiCalls:0,
-      paidCostMicros:0,
+      externalAiMode:ai.externalAiCalls?"model":"disabled",
+      externalAiCalls:ai.externalAiCalls,
+      paidAiCalls:ai.paidAiCalls,
+      paidCostMicros:ai.costMicros??0,
     },
-    engines:engineResults({b,a,opportunity:signal,processed,suggestionDirection:popular,prior,kind,research,ai}),
+    engines:engineResults({b,a,opportunity:signal,processed:0,suggestionDirection:null,prior,kind,research,ai}),
     research:[retainedResearch,research,...(research.programme==="Prosperity"?[]:[makeResearch(3,b,a,signal)])],
     warnings:[
       ...(!a || a.restored?[{signal:a?"Synthetic primary SHA-256 mismatch":"Synthetic archive integrity check failed",
@@ -82,6 +78,23 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
       {title:"Separate estimates from receipts",why:"Price forecasts do not measure earnings.",action:"Use the pricing prototype to set a pilot quote and reconcile only authorized receipts when connected.",uncertainty:"Demand, margins and receipts are not verified."},
     ],
   };
+  const aiEngine=run.engines.find(item=>item.id==="divine-ai-instances");
+  if(ai.paidAiCalls || ai.unresolvedMicros) {
+    aiEngine?.evidence.push({label:"Paid cost telemetry",detail:
+      `The numeric paid cost is estimated settled provider usage (${ai.costMicros??0} USD micros), not confirmed billing.`+
+      ` Paid requests reserve capacity for both token counting and generation before counting.`+
+      (ai.unresolvedMicros?` Unresolved reservations: ${ai.unresolvedMicros} USD micros; actual total cost is unknown. Token-count reservations are retained because a reply does not establish billing.`:"")});
+  }
+  if(ai.status==="measured") {
+    const secrets=[env.COMMAND_FREE_PROVIDER_KEY,env.COMMAND_PAID_PROVIDER_KEY].filter((value):value is string=>!!value);
+    const safe=(value:string|undefined)=>value && !secrets.some(secret=>value.includes(secret))?value:"redacted";
+    aiEngine?.evidence.push(
+      {label:"Model",detail:safe(ai.model)},
+      {label:"Model tier",detail:ai.tier??"unknown"},
+      {label:"Genesis version",detail:safe(ai.version)},
+      {label:"Genesis SHA-256",detail:safe(ai.checksum)},
+    );
+  }
   await store.complete(lease,run,[{entry:method,outcome:evaluation.outcome},{entry:evolution,outcome:evolutionResult.outcome}]);
   return run;
 }

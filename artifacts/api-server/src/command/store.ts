@@ -12,9 +12,13 @@ const leaseMs = 4 * 60_000;
 type Lease = { id: string; token: string };
 type Slot = { token: string; until: number; attempts: number; status: string; run?: CommandRun };
 type Suggestion = { programme: string; text: string; resourceUrl?:string };
+type ReviewEvent={status:string;reason:string;at:string};
+export type PrivateSuggestion = { id:string; programme:string; text?:string; resourceUrl?:string; status:string; reason:string|null; reviewedAt:string|null; submittedAt:string; topic:string|null; history:ReviewEvent[] };
+export type SuggestionDecision = { status:"accepted"|"rejected"|"queued"|"completed"; reason:string; topic?:string };
 type Budget = { reserved: number; settled: number; tokens: number; requests?:number };
-export type SuggestionTriage={reviewed:number;programmeCounts:Record<string,number>};
+export type SuggestionTriage={reviewed:number;programmeCounts:Record<string,number>;selected:{id:string;programme:string;relatedCount:number}|null};
 export type KnowledgeOutcome={entry:LearningEntry;outcome:"passed"|"failed"};
+const excludedReceipt="Nt6E2S6U9msi5G7Ulufy";
 
 export interface CommandStore {
   readonly production: boolean;
@@ -26,7 +30,11 @@ export interface CommandStore {
   allRunMetrics(): Promise<{internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number;
     billingPeriod:string;monthlyPaidAiSpendMicros:number;monthlyPaidAiReservedMicros:number;monthlyPaidAiRequests:number;monthlyPaidAiAllowanceMicros:number}>;
   enqueue(input: Suggestion): Promise<string>;
+  getReceipt(id:string): Promise<{status:string}|null>;
   review(): Promise<SuggestionTriage>;
+  listResearchCandidates(after?:string): Promise<{candidates:{id:string;programme:string;relatedCount:number;relatedCountScope:"current-page-only"}[];nextCursor:string|null;rankingScope:"current-page-only"}>;
+  listSuggestions(after?:string, limit?:number): Promise<PrivateSuggestion[]>;
+  setSuggestionReview(id:string, decision:SuggestionDecision): Promise<boolean>;
   reserve(id: string, amount: number, cap: number): Promise<boolean>;
   settle(id: string, actual: number, tokens: number): Promise<void>;
 }
@@ -49,6 +57,9 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;
     CREATE TABLE IF NOT EXISTS slots(id TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, programme TEXT, text TEXT, status TEXT, submitted INTEGER);
+    CREATE TABLE IF NOT EXISTS suggestion_ledger(id TEXT PRIMARY KEY, programme TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, submitted INTEGER NOT NULL, reviewed_at TEXT, topic TEXT);
+    CREATE TABLE IF NOT EXISTS suggestion_reviews(id INTEGER PRIMARY KEY, suggestion_id TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS suggestion_reviews_by_suggestion ON suggestion_reviews(suggestion_id,id);
     CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, day TEXT NOT NULL, amount INTEGER NOT NULL);`);
   db.exec("CREATE TABLE IF NOT EXISTS knowledge(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
@@ -125,25 +136,68 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
     async enqueue(input) {
       return tx(() => {
         const now = Date.now();
+        db.prepare(`INSERT OR IGNORE INTO suggestion_ledger(id,programme,status,reason,submitted)
+          SELECT id,COALESCE(programme,''),'queued','Awaiting individual review.',submitted FROM inbox WHERE submitted < ?`)
+          .run(now - 7 * 86_400_000);
         db.prepare("DELETE FROM inbox WHERE submitted < ?").run(now - 7 * 86_400_000);
         const { total } = db.prepare("SELECT count(*) AS total FROM inbox WHERE submitted>?").get(now - 60_000)!;
         if (Number(total) >= 5) throw new Error("inbox-limit");
         const id = randomUUID();
         db.prepare("INSERT INTO inbox(id,programme,text,status,submitted,resource_url) VALUES(?,?,?,?,?,?)")
           .run(id,input.programme,input.text,"queued",now,input.resourceUrl??null);
+        db.prepare("INSERT INTO suggestion_ledger(id,programme,status,reason,submitted) VALUES(?,?,?,?,?)")
+          .run(id,input.programme,"queued","Awaiting individual review.",now);
         return id;
       });
     },
+    async getReceipt(id) {
+      const row=db.prepare("SELECT status FROM suggestion_ledger WHERE id=? UNION ALL SELECT 'queued' AS status FROM inbox WHERE id=? AND NOT EXISTS (SELECT 1 FROM suggestion_ledger WHERE id=?) LIMIT 1").get(id,id,id);
+      return row?{status:String(row.status)}:null;
+    },
     async review() {
-      const selected=tx(()=>{
-        const rows=db.prepare("SELECT id,programme FROM inbox WHERE status='queued' ORDER BY submitted LIMIT 25").all() as {id:string;programme:string}[];
-        const update=db.prepare("UPDATE inbox SET status='triaged' WHERE id=? AND status='queued'");
-        rows.forEach(item=>update.run(item.id));
-        return rows;
+      return {reviewed:0,programmeCounts:{},selected:null};
+    },
+    async listResearchCandidates(after="") {
+      const rows=db.prepare("SELECT id,programme,topic FROM suggestion_ledger WHERE status='accepted' AND id<>? AND id>? ORDER BY id LIMIT 25").all(excludedReceipt,after);
+      return rankSuggestions(rows.map(row=>({id:String(row.id),programme:String(row.programme),topic:row.topic===null?null:String(row.topic)})));
+    },
+    async listSuggestions(after="",limit=50) {
+      return db.prepare(`WITH records AS (
+        SELECT l.id,l.programme,i.text,i.resource_url,l.status,l.reason,l.reviewed_at,l.submitted,l.topic
+        FROM suggestion_ledger l LEFT JOIN inbox i ON i.id=l.id
+        UNION ALL
+        SELECT i.id,i.programme,i.text,i.resource_url,'queued','Awaiting individual review.',NULL,i.submitted,NULL
+        FROM inbox i WHERE NOT EXISTS (SELECT 1 FROM suggestion_ledger l WHERE l.id=i.id))
+        SELECT * FROM records WHERE id>? ORDER BY id LIMIT ?`)
+        .all(after, Math.max(1,Math.min(100,limit))).map(row=>({
+          id:String(row.id),programme:String(row.programme),...(row.text===null?{}:{text:String(row.text)}),
+          ...(row.resource_url ? {resourceUrl:String(row.resource_url)} : {}),
+          status:String(row.status),reason:row.reason===null?null:String(row.reason),
+          reviewedAt:row.reviewed_at===null?null:String(row.reviewed_at),
+          submittedAt:new Date(Number(row.submitted)).toISOString(),
+          topic:row.topic===null?null:String(row.topic),
+          history:db.prepare("SELECT status,reason,at FROM suggestion_reviews WHERE suggestion_id=? ORDER BY id DESC LIMIT 25").all(String(row.id))
+            .map(event=>({status:String(event.status),reason:String(event.reason),at:String(event.at)})),
+        }));
+    },
+    async setSuggestionReview(id,decision) {
+      validateDecision(decision);
+      if(id===excludedReceipt && decision.status==="accepted") return false;
+      return tx(()=>{
+        const at=new Date().toISOString();
+        const row=db.prepare("SELECT id FROM suggestion_ledger WHERE id=?").get(id);
+        if(!row) {
+          const legacy=db.prepare("SELECT programme,submitted FROM inbox WHERE id=?").get(id);
+          if(!legacy) return false;
+          db.prepare("INSERT INTO suggestion_ledger(id,programme,status,reason,submitted) VALUES(?,?,?,?,?)")
+            .run(id,String(legacy.programme),"queued","Awaiting individual review.",Number(legacy.submitted));
+        }
+        const updated=Number(db.prepare("UPDATE suggestion_ledger SET status=?,reason=?,reviewed_at=?,topic=? WHERE id=?")
+          .run(decision.status,decision.reason,at,decision.topic??null,id).changes)>0;
+        if(updated) db.prepare("INSERT INTO suggestion_reviews(suggestion_id,status,reason,at) VALUES(?,?,?,?)")
+          .run(id,decision.status,decision.reason,at);
+        return updated;
       });
-      const programmeCounts:Record<string,number>={};
-      for(const item of selected) programmeCounts[item.programme]=(programmeCounts[item.programme]??0)+1;
-      return {reviewed:selected.length,programmeCounts};
     },
     async reserve(id, amount, cap) {
       return tx(() => {
@@ -169,6 +223,23 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
       });
     },
   };
+}
+
+function validateDecision(decision:SuggestionDecision) {
+  if(!["queued","accepted","rejected","completed"].includes(decision.status) ||
+      typeof decision.reason!=="string" || decision.reason.trim().length<5 || decision.reason.length>500 ||
+      decision.topic!==undefined && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(decision.topic))
+    throw new Error("Invalid suggestion decision");
+}
+
+function rankSuggestions(rows:{id:string;programme:string;topic:string|null}[]) {
+  const topics=new Map<string,number>();
+  const key=(row:typeof rows[number])=>`${row.programme}:${row.topic??row.id}`;
+  for(const row of rows) topics.set(key(row),(topics.get(key(row))??0)+1);
+  const nextCursor=rows.length===25?rows[rows.length-1]!.id:null;
+  const candidates=rows.map(row=>({id:row.id,programme:row.programme,relatedCount:topics.get(key(row))!,relatedCountScope:"current-page-only" as const}))
+    .sort((a,b)=>b.relatedCount-a.relatedCount || a.id.localeCompare(b.id));
+  return {candidates,nextCursor,rankingScope:"current-page-only" as const};
 }
 
 function normalizeRun(value:unknown):CommandRun {
@@ -198,6 +269,7 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
   const slots = db.collection("commandSlots");
   const runs = db.collection("commandPublicRuns");
   const inbox = inboxDb.collection("commandInbox");
+  const ledger = inboxDb.collection("commandSuggestionLedger");
   const spending = db.collection("commandSpending");
   const reservations = db.collection("commandReservations");
   const globalLimit = inboxDb.doc("commandControl/intake");
@@ -269,22 +341,63 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
         const count = old?.minute === minute ? Number(old.count) : 0;
         if (count >= 5) throw new Error("inbox-limit");
         tr.set(globalLimit,{ minute,count:count+1 });
-        tr.create(ref,{ ...input,resourceUrl:input.resourceUrl??null,status:"queued",submittedAt: new Date(),expiresAt: new Date(Date.now()+7*86_400_000) });
+        const now=new Date();
+        tr.create(ref,{ ...input,resourceUrl:input.resourceUrl??null,status:"queued",submittedAt:now,expiresAt:new Date(+now+7*86_400_000) });
+        tr.create(ledger.doc(ref.id),{programme:input.programme,status:"queued",reason:"Awaiting individual review.",submittedAt:now});
       });
       return ref.id;
     },
+    async getReceipt(id) {
+      const [saved,raw]=await inboxDb.getAll(ledger.doc(id),inbox.doc(id));
+      if(saved?.exists) return {status:String(saved.get("status"))};
+      return raw?.exists?{status:"queued"}:null;
+    },
     async review() {
-      const snapshot = await inbox.where("status","==","queued").limit(25).get();
-      const programmeCounts:Record<string,number>={};
-      const batch = inboxDb.batch();
-      snapshot.docs.forEach(doc => {
-        const programme=String(doc.get("programme"));
-        if(["continuity","prosperity","heritage","preparedness"].includes(programme))
-          programmeCounts[programme]=(programmeCounts[programme]??0)+1;
-        batch.update(doc.ref,{ status:"triaged" },{lastUpdateTime:doc.updateTime});
+      return {reviewed:0,programmeCounts:{},selected:null};
+    },
+    async listResearchCandidates(after="") {
+      let query=ledger.where("status","==","accepted").orderBy("__name__").limit(26);
+      if(after) query=query.startAfter(after);
+      const snapshot=await query.get();
+      const rows=snapshot.docs.filter(doc=>doc.id!==excludedReceipt).slice(0,25).map(doc=>({
+        id:doc.id,programme:String(doc.get("programme")),topic:typeof doc.get("topic")==="string"?String(doc.get("topic")):null,
+      }));
+      return rankSuggestions(rows);
+    },
+    async listSuggestions(after="",limit=50) {
+      const size=Math.max(1,Math.min(100,limit));
+      let ledgerQuery=ledger.orderBy("__name__").limit(size),inboxQuery=inbox.orderBy("__name__").limit(size);
+      if(after) {ledgerQuery=ledgerQuery.startAfter(after);inboxQuery=inboxQuery.startAfter(after);}
+      const [ledgerPage,inboxPage]=await Promise.all([ledgerQuery.get(),inboxQuery.get()]);
+      const ids=[...new Set([...ledgerPage.docs.map(doc=>doc.id),...inboxPage.docs.map(doc=>doc.id)])].sort().slice(0,size);
+      if(!ids.length) return [];
+      const [ledgerDocs,inboxDocs]=await Promise.all([
+        inboxDb.getAll(...ids.map(id=>ledger.doc(id))),inboxDb.getAll(...ids.map(id=>inbox.doc(id))),
+      ]);
+      return Promise.all(ids.map(async(id,index)=>{
+        const data=ledgerDocs[index]?.data(),raw=inboxDocs[index]?.data();
+        const history=await ledger.doc(id).collection("reviews").orderBy("at","desc").limit(25).get();
+        return {id,programme:String(data?.programme??raw?.programme??""),...(raw?.text?{text:String(raw.text)}:{}),
+          ...(raw?.resourceUrl?{resourceUrl:String(raw.resourceUrl)}:{}),status:String(data?.status??"queued"),
+          reason:typeof data?.reason==="string"?data.reason:"Awaiting individual review.",
+          reviewedAt:typeof data?.reviewedAt==="string"?data.reviewedAt:null,
+          submittedAt:(data?.submittedAt??raw?.submittedAt)?.toDate?.().toISOString()??new Date(0).toISOString(),
+          topic:typeof data?.topic==="string"?data.topic:null,
+          history:history.docs.map(doc=>doc.data() as ReviewEvent)};
+      }));
+    },
+    async setSuggestionReview(id,decision) {
+      validateDecision(decision);
+      if(id===excludedReceipt && decision.status==="accepted") return false;
+      return inboxDb.runTransaction(async tr=>{
+        const ref=ledger.doc(id),[doc,raw]=await Promise.all([tr.get(ref),tr.get(inbox.doc(id))]);
+        if(!doc.exists && !raw.exists) return false;
+        const data=doc.data()??{programme:raw.get("programme"),submittedAt:raw.get("submittedAt")};
+        const at=new Date().toISOString();
+        tr.set(ref,{...data,...decision,topic:decision.topic??null,reviewedAt:at});
+        tr.create(ref.collection("reviews").doc(),{status:decision.status,reason:decision.reason,at});
+        return true;
       });
-      if (!snapshot.empty) await batch.commit();
-      return {reviewed:snapshot.size,programmeCounts};
     },
     async reserve(id, amount, cap) {
       if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;

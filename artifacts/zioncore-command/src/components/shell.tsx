@@ -6,6 +6,7 @@ import { StatusChip } from "@/components/bits";
 
 const nav = [
   { href: "/", label: "Dashboard" },
+  ...(import.meta.env.VITE_PAGES === "true" ? [{ href: "/engines", label: "Engines" }] : []),
   { href: "/runs", label: "Runs" },
   { href: "/research", label: "Research" },
   { href: "/knowledge", label: "Knowledge" },
@@ -25,7 +26,7 @@ export function Shell({ children }: { children: ReactNode }) {
   ));
   return (
     <div className="relative z-10 min-h-[100dvh] flex flex-col">
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-primary focus:text-primary-foreground focus:px-3 focus:py-2">Skip to content</a>
+      <a href="#main" onClick={(event) => { event.preventDefault(); document.getElementById("main")?.focus(); }} className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-primary focus:text-primary-foreground focus:px-3 focus:py-2">Skip to content</a>
       <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur pt-[env(safe-area-inset-top)]">
         <div className="mx-auto max-w-7xl px-3 sm:px-5 h-14 flex items-center gap-4">
           <Link href="/" data-testid="link-home" className="flex items-center gap-2.5 shrink-0">
@@ -47,7 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         {open && <nav className="lg:hidden border-t border-border flex flex-col px-3 pb-2" aria-label="Mobile">{links("py-3 text-sm border-l-2 pl-3")}</nav>}
       </header>
-      <main id="main" className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-5 py-5 sm:py-7">{children}</main>
+      <main id="main" tabIndex={-1} className="flex-1 mx-auto w-full max-w-7xl px-3 sm:px-5 py-5 sm:py-7">{children}</main>
       <footer className="border-t border-border pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto max-w-7xl px-3 sm:px-5 py-4 flex flex-col sm:flex-row gap-1 justify-between font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
           <span>Public observatory · read only · no verified earnings</span>
