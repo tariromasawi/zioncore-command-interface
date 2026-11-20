@@ -1,0 +1,13 @@
+.git
+.local
+.agents
+.cache
+.conversation
+attached_assets
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env*
+**/*.sqlite*
+Genesis seed.ts
+gha-creds-*.json
