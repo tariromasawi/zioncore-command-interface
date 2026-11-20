@@ -62,6 +62,12 @@
         <button id="suggestion-submit" type="submit">Send for private review</button>
         <p id="suggestion-status" class="hint" role="status" aria-live="polite"></p>
       </form>
+      <form id="command-receipt-form">
+        <label for="suggestion-receipt">Check a suggestion reference</label>
+        <input id="suggestion-receipt" name="receipt" type="text" minlength="20" maxlength="128" pattern="[A-Za-z0-9-]{20,128}" required autocomplete="off">
+        <button id="receipt-submit" type="submit">Check review status</button>
+        <p id="receipt-status" class="hint" role="status" aria-live="polite"></p>
+      </form>
     </section>
     <noscript><p class="panel">Enable JavaScript to load live data and submit a suggestion.</p></noscript>
     <footer>The canonical Genesis Seed and provider credentials are private and are never shown here. This dashboard does not enable paid AI by itself.</footer>

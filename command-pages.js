@@ -3,6 +3,7 @@
   const status = document.getElementById("command-status");
   const results = document.getElementById("command-results");
   const form = document.getElementById("command-suggestion-form");
+  const receiptForm = document.getElementById("command-receipt-form");
   const approvedServiceUrl = "https://zioncore-command-public-web-pffsyl4lbq-nw.a.run.app/";
   let host = null;
   let feed = null;
@@ -471,9 +472,47 @@
         const receipt = await submitted.json().catch(() => ({}));
         if (!submitted.ok) throw new Error(receipt.error || `HTTP ${submitted.status}`);
         message.textContent = `Stored privately for review. Reference: ${receipt.id}. It was not published, executed, or fetched.`;
+        const receiptInput = document.getElementById("suggestion-receipt");
+        if (receiptInput && typeof receipt.id === "string") receiptInput.value = receipt.id;
         form.reset();
       } catch (error) {
         message.textContent = error instanceof Error ? error.message : "Could not submit. Try again later.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+  if (receiptForm) {
+    receiptForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("receipt-submit");
+      const message = document.getElementById("receipt-status");
+      if (!button || !message) return;
+      const id = String(new FormData(receiptForm).get("receipt") || "").trim();
+      if (!/^[a-zA-Z0-9-]{20,128}$/.test(id)) {
+        message.textContent = "Enter a valid suggestion reference.";
+        return;
+      }
+      if (!host) {
+        message.textContent = "Review status is unavailable. Try again when the feed is available.";
+        return;
+      }
+      button.disabled = true;
+      message.textContent = "Checking review status…";
+      try {
+        const response = await fetch(new URL("/api/command/suggestions/status", host), {
+          method: "POST",
+          credentials: "omit",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+          signal: AbortSignal.timeout(12000),
+        });
+        const receipt = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(response.status === 404 ? "Reference not found or review status is not yet available." : "Review status is temporarily unavailable.");
+        if (typeof receipt.status !== "string" || typeof receipt.reason !== "string") throw new Error("Review status is temporarily unavailable.");
+        message.textContent = `Status: ${receipt.status}. ${receipt.reason}`;
+      } catch (error) {
+        message.textContent = error instanceof Error ? error.message : "Review status is temporarily unavailable.";
       } finally {
         button.disabled = false;
       }
