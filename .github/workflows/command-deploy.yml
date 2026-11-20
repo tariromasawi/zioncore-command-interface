@@ -1,0 +1,23 @@
+name: Deploy reviewed ZionCore Command release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: command-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'tariromasawi/zioncore-command-interface' && github.ref == 'refs/heads/release/command-public-rebuild'
+    environment: command-production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/740460863819/locations/global/workloadIdentityPools/command-github/providers/command-release
+          service_account: command-release@gen-lang-client-0266144152.iam.gserviceaccount.com
+          project_id: gen-lang-client-0266144152
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: bash ops/cloud.sh deploy "$GITHUB_SHA"

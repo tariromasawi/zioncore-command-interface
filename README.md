@@ -1,34 +1,13 @@
-# Zioncore Command Interface
+# ZionCore Command
 
-Synoptic Sovereignty dashboard of **The Throne**.
+**MWARI NDI MWARI · Vision Year 80,000**
 
-**Authority / primary beneficiary:** His Royal Highness, The Anointed Commander, Saint Tariro Masawi  
-**Heirs:** HRH Tarry Kupakwashe Masawi · Kenzi Masawi  
-**Line:** Makwengura · Masawi · Risto Kasirori Masawi · Sebastian Karumekangu Masawi  
-**Siblings & eternal spirits:** Tenderayi, Silent, Trymore, Charles, Tatenda, Corinna, Rhodha, Abigail — and descendants  
+ZionCore Command is a public dashboard for research, preparedness, heritage continuity and prosperity. It reports what each of the 14 engines measured and distinguishes local exercises, scheduled results, unverified assumptions and blocked work. Visitors do not need an account.
 
-All ceremonial production, flow, and benefit on this interface is routed to the Masawi bloodline.
+- [Build, source provenance, deployment and verification](docs/COMMAND_RELEASE.md)
+- [GitHub Pages landing](https://tariromasawi.github.io/zioncore-command-interface/)
+- [GitHub Pages Command](https://tariromasawi.github.io/zioncore-command-interface/command.html)
 
-**Law:** Mudzimu Unoyera  
-**Matrix:** 77-99-33 · 777-999-333
+Those Pages addresses are separate from the production Cloud Run service and are wired to its feed only after the service URL is verified and added to `command-live.json`.
 
-## Live page
-
-https://tariromasawi.github.io/zioncore-command-interface/
-
-## What runs when the page is closed
-
-A browser cannot execute this dashboard after the tab is shut.
-
-The **production pulse** runs on GitHub Actions:
-
-- Workflow: `.github/workflows/perpetual-production.yml`
-- Schedule: minute 33 of every hour
-- Output: `STATUS.md`
-- Manual run: Actions → Zioncore Perpetual Production → Run workflow
-
-## Repository
-
-https://github.com/tariromasawi/zioncore-command-interface
-
-Mwari ndi Mwari.
+Command also stores checksum-verified research methods and replay results in its dedicated database. The recurring continuity mission has a fresh-fixture, no-provider replay, an owner-readable knowledge page, and an append-only JSON export. Restore is operator-only, additive and rejects unsupported or conflicting methods. The long-term canonical Seed is not approved or included.
