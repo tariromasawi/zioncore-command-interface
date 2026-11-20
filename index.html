@@ -1,37 +1,18 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Live, public ZionCore Command results and scheduled mission evidence.">
-  <title>ZionCore Command | Public results</title>
+  <title>ZionCore Command Interface</title>
+  <meta http-equiv="refresh" content="0; url=./command.html">
+  <link rel="canonical" href="./command.html">
   <style>
-    :root { color-scheme: dark; font: 16px/1.6 system-ui, sans-serif; color: #e5e7f5; background: #0d0c1d; }
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: clamp(1rem, 4vw, 3rem); }
-    main { max-width: 72rem; margin: auto; }
-    h1 { font-size: clamp(2rem, 7vw, 4rem); line-height: 1.1; border-bottom: 2px solid #4f46e5; padding-bottom: 1rem; }
-    h2 { color: #a5b4fc; }
-    a { color: #6ee7e1; text-decoration: underline; overflow-wrap: anywhere; }
-    a:focus-visible { outline: 2px solid #6ee7e1; outline-offset: 4px; }
-    article, .panel { border: 1px solid #373258; border-radius: .75rem; padding: .75rem 1rem; margin: 1rem 0; background: #121127; }
-    .kicker { letter-spacing: .14em; color: #9de7df; font-size: .85rem; text-transform: uppercase; }
-    #command-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: .5rem; }
-    #command-results > h2, #command-results > .wide { grid-column: 1 / -1; }
-    [hidden] { display: none; }
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #0b0a18; color: #e8e9f4; padding: 2rem; }
+    a { color: #9db7ff; }
   </style>
-  <script src="command-pages.js" defer></script>
 </head>
 <body>
-  <main>
-    <p class="kicker">ZionCore Command · Public operations</p>
-    <h1>Verified results and mission evidence</h1>
-    <p>This page is read-only and does not require sign-in. Results are drawn from the public production feed; unavailable or unmeasured values are identified as such.</p>
-    <p><a data-command-app hidden>Open the live Command application</a></p>
-    <p id="command-status" class="panel" role="status" aria-live="polite">Loading the public production feed…</p>
-    <div id="command-results" aria-live="polite"></div>
-    <noscript><p class="panel">Enable JavaScript to view live results, or open the <a href="command.html">public Command results page</a>.</p></noscript>
-    <footer class="panel">The canonical Genesis Seed and provider credentials are private and are not displayed here.</footer>
-  </main>
+  <p>Opening the full signed-out Command interface…</p>
+  <p><a href="./command.html">Continue to Command</a></p>
 </body>
 </html>
