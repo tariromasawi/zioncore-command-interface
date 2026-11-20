@@ -92,6 +92,7 @@
     ]) {
       const link = append(nav, "a", label, "nav-link");
       link.href = path ? `#/${path}` : "#/";
+      if ((route().view === "home" && !path) || route().view === path) link.setAttribute("aria-current", "page");
       link.setAttribute("data-testid", `link-nav-${path || "overview"}`);
     }
   };
@@ -146,17 +147,38 @@
     append(parent, "p", "Gateway usage is an estimate, not a provider invoice. Cloud infrastructure is reported separately.", "hint");
   };
   const showOverview = () => {
-    const latest = feed.runs?.[0];
+    const latest = feed.runs.find((run) => run.outcome === "completed");
+    const result = latest?.research?.find((record) => record.result);
     const summary = section("Live operations", true);
-    append(summary, "p", `State: ${text(feed.state)} · Scheduled cadence: ${text(feed.cadence)}.`);
-    append(summary, "p", `Next scheduled run: ${text(feed.nextExpected)}.`);
-    append(summary, "p", `Public feed reports ${feed.engines.length} engines and ${feed.runs.length} retained runs in this response.`);
+    summary.classList.add("overview");
+    append(summary, "p", "The latest recorded activity from the production feed.", "hint");
+    const grid = append(summary, "div", "", "overview-grid");
+    const item = (label, value) => {
+      const box = append(grid, "div", "", "overview-item");
+      append(box, "p", label, "overview-label");
+      append(box, "p", value);
+      return box;
+    };
+    item("System status", text(feed.state));
+    item("Latest result", result ? text(result.result) : "No research result reported");
+    const last = item("Last completed run", latest ? text(latest.finishedAt, text(latest.startedAt)) : "Not reported");
+    item("Next scheduled run", text(feed.nextExpected));
     if (latest && /^[a-z0-9-]+$/i.test(latest.id)) {
-      internalLink(summary, `Open latest run ${latest.id} (${text(latest.outcome)})`, `runs/${latest.id}`);
-    } else append(summary, "p", "No completed public run is available.");
-    const genesis = feed.genesis || {};
-    append(summary, "p", `Genesis AI status: ${text(genesis.status)}. The Seed payload and provider credentials are never displayed here.`);
-    if (genesis.note) append(summary, "p", genesis.note, "hint");
+      internalLink(last, "View run & evidence →", `runs/${latest.id}`);
+    }
+    append(summary, "p", text(feed.cadence), "hint");
+
+    const engineSection = section(`Operational engines (${feed.engines.length}/14)`, true);
+    append(engineSection, "p", "Select an engine to explore its results, evidence and run history.", "hint");
+    const engineGrid = append(engineSection, "div", "", "engine-grid");
+    if (!feed.engines.length) append(engineGrid, "p", "No engines are reported.");
+    for (const engine of feed.engines) {
+      if (!/^[a-z0-9-]+$/.test(engine.id)) continue;
+      const card = append(engineGrid, "article", "");
+      internalLink(card, text(engine.name, engine.id), `engines/${engine.id}`);
+      append(card, "p", `${text(engine.programme)} · ${text(engine.status)}`, "metric");
+      append(card, "p", text(engine.metric));
+    }
 
     const warnings = allWarnings().slice(0, 8);
     const warningSection = section(`Warnings (${warnings.length} recent)`);
@@ -171,33 +193,26 @@
     const learning = section("Monthly learning and paid-AI usage");
     showLearningSummary(learning);
 
-    const engineSection = section(`Operational engines (${feed.engines.length}/14)`, true);
-    if (!feed.engines.length) append(engineSection, "p", "No engines are reported.");
-    for (const engine of feed.engines) {
-      if (!/^[a-z0-9-]+$/.test(engine.id)) continue;
-      const card = append(engineSection, "article", "");
-      internalLink(card, `${text(engine.name, engine.id)} · ${engine.id}`, `engines/${engine.id}`);
-      append(card, "p", `${text(engine.status)} · ${text(engine.metric)}`, "metric");
-      append(card, "p", text(engine.detail));
-    }
     const history = section("Recent run history");
     if (!feed.runs.length) append(history, "p", "No runs are recorded.");
-    for (const run of feed.runs) {
+    for (const run of feed.runs.slice(0, 5)) {
       if (!/^[a-z0-9-]+$/i.test(run.id)) continue;
       const card = append(history, "article", "");
       internalLink(card, `${text(run.kind, "Run")} · ${text(run.outcome)} · ${run.id}`, `runs/${run.id}`);
       append(card, "p", `Started: ${text(run.startedAt)} · Finished: ${text(run.finishedAt)}`, "hint");
     }
+    internalLink(history, "View all run history →", "runs");
   };
   const showEngines = (id = "") => {
     const engines = Array.isArray(feed.engines) ? feed.engines : [];
     if (!id) {
       const list = section(`All operational engines (${engines.length}/14)`, true);
+      const grid = append(list, "div", "", "engine-grid");
       if (!engines.length) append(list, "p", "No engines are reported.");
       for (const engine of engines) {
         if (!/^[a-z0-9-]+$/.test(engine.id)) continue;
-        const card = append(list, "article", "");
-        internalLink(card, `${text(engine.name, engine.id)} · ${engine.id}`, `engines/${engine.id}`);
+        const card = append(grid, "article", "");
+        internalLink(card, text(engine.name, engine.id), `engines/${engine.id}`);
         append(card, "p", `${text(engine.programme)} · ${text(engine.status)} · ${text(engine.metric)}`, "metric");
         append(card, "p", text(engine.detail));
       }
@@ -212,6 +227,9 @@
     append(panel, "p", `Programme: ${text(engine.programme)} · Status: ${text(engine.status)}`, "metric");
     append(panel, "p", `Metric: ${text(engine.metric)}`);
     append(panel, "p", text(engine.detail));
+    if (engine.status === "blocked" && engine.id === "divine-ai-instances") {
+      append(panel, "p", `Genesis blocker: ${text(feed.genesis?.note, "The feed does not report a specific AI blocker.")}`, "hint");
+    }
     append(panel, "h3", "Evidence");
     addEvidence(panel, engine.evidence);
     const history = section("Engine run history", true);
@@ -220,9 +238,10 @@
       const result = (run.engines || []).find((item) => item.id === engine.id);
       if (!result) continue;
       count++;
-      const card = append(history, "article", "");
-      internalLink(card, `${text(run.startedAt)} · ${text(result.status)} · ${text(result.metric)}`, `runs/${run.id}`);
+      const card = append(history, "details", "");
+      append(card, "summary", `${text(run.startedAt)} · ${text(result.status)} · ${text(result.metric)}`);
       append(card, "p", text(result.detail));
+      internalLink(card, "Open run", `runs/${run.id}`);
       addEvidence(card, result.evidence);
     }
     if (!count) append(history, "p", "No per-run engine history is included in the current feed window.");
@@ -389,10 +408,10 @@
   const showGenesis = () => {
     const panel = section("Genesis AI readiness", true);
     const genesis = feed.genesis || {};
-    append(panel, "p", `Status: ${text(genesis.status)} · version: ${text(genesis.version)}`);
+    append(panel, "p", `Status: ${text(genesis.status)} · reported candidate version: ${text(genesis.version)}`);
     append(panel, "p", `Reported checksum: ${text(genesis.checksum)}`);
     append(panel, "p", text(genesis.note, "Seed payload is not displayed on this public page."));
-    append(panel, "p", "The reported checksum is not proof that the configured candidate matches the owner-approved original Seed.", "hint");
+    append(panel, "p", `Approved version: ${text(genesis.approvedVersion, "Not reported")} · approved checksum: ${text(genesis.approvedChecksum, "Not reported")}. The reported candidate checksum is not proof of approval.`, "hint");
     append(panel, "p", "This page never displays the canonical Seed or provider credentials. Paid calls must remain off until the owner-approved canonical Seed, provider, and credentials are configured and verified.");
   };
   const render = () => {
@@ -418,9 +437,18 @@
     });
     if (!response.ok) throw new Error(`Feed HTTP ${response.status}`);
     const next = await response.json();
-    if (!Array.isArray(next.engines) || !Array.isArray(next.runs)) throw new Error("Unexpected public-feed shape");
+    if (!next || typeof next !== "object" || Array.isArray(next)) throw new Error("Unexpected public-feed shape");
+    const unavailable = [];
+    for (const key of ["engines", "runs"]) {
+      if (!Array.isArray(next[key])) {
+        unavailable.push(key);
+        next[key] = [];
+      }
+    }
     feed = next;
-    status.textContent = `Production feed: ${text(feed.state)} · ${text(feed.cadence)} Next scheduled run: ${text(feed.nextExpected)}.`;
+    const nextTime = Date.parse(feed.nextExpected);
+    const stale = Number.isFinite(nextTime) && Date.now() > nextTime + 30 * 60_000;
+    status.textContent = `Production feed: ${text(feed.state)}${stale ? " · schedule overdue; results may be stale" : ""}${unavailable.length ? ` · unavailable: ${unavailable.join(", ")}` : ""}.`;
     render();
   };
   const configure = async () => {
@@ -473,7 +501,9 @@
         message.textContent = `Stored privately for review. Reference: ${receipt.id}. It was not published, executed, or fetched.`;
         form.reset();
       } catch (error) {
-        message.textContent = error instanceof Error ? error.message : "Could not submit. Try again later.";
+        message.textContent = error instanceof TypeError
+          ? "The review service could not be reached from this page. Submission status is unknown; check before retrying."
+          : error instanceof Error ? error.message : "Could not submit. Submission status is unknown; check before retrying.";
       } finally {
         button.disabled = false;
       }
@@ -485,8 +515,8 @@
       status.textContent = `The public production feed is unavailable; no results are shown as current. ${error instanceof Error ? error.message : ""}`;
     });
   window.setInterval(() => {
-    refresh().catch(() => {
-      status.textContent = "Feed refresh failed. Displayed results may be stale; retry shortly.";
+    (host ? refresh() : configure().then(refresh)).catch(() => {
+      status.textContent = feed ? "Feed refresh failed. Displayed results may be stale; retry shortly." : "The public production feed is unavailable; no results are shown as current. Retrying shortly.";
     });
   }, 60_000);
 })();
