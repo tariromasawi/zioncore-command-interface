@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { isIP } from "node:net";
 import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,13 +28,13 @@ export function blankEngines(): EngineResult[] {
 export const sha = (value: Buffer|string) => createHash("sha256").update(value).digest("hex");
 const approvedArchive = Buffer.from("ZionCore Command | Synthetic public archive: Year 80,000 continuity exercise\n");
 
-export async function archiveExercise(inject: boolean, data=approvedArchive) {
+export async function archiveExercise(inject: boolean) {
   const dir = await mkdtemp(join(tmpdir(),"command-archive-"));
   try {
     const primary = join(dir,"primary"), mirror = join(dir,"mirror"), stage = join(dir,"staged");
-    const expected = sha(data);
-    await writeFile(primary,data);
-    await writeFile(mirror,data);
+    const expected = sha(approvedArchive);
+    await writeFile(primary,approvedArchive);
+    await writeFile(mirror,approvedArchive);
     if (inject) await writeFile(primary,Buffer.from("synthetic exercise: damaged primary\n"));
     const observed = sha(await readFile(primary));
     const mirrorHash = sha(await readFile(mirror));
@@ -134,22 +133,11 @@ export function makeResearch(day: number, b: ReturnType<typeof benchmark>, a: Aw
 export const safeSuggestion = (text:string) =>
   !/https?:|www\.|@|(?:\+?\d[\s().-]*){7,}|-----BEGIN|(?:\b(?:exploit|malware|doxx|weaponize|phishing|synthesize pathogen)\b)/iu.test(text);
 
-export function safePublicResourceUrl(value:string) {
-  if(value.length>2048) return false;
-  try {
-    const url=new URL(value);
-    const hostname=url.hostname.toLowerCase();
-    return url.protocol==="https:" && !url.username && !url.password && !url.port &&
-      hostname.includes(".") && !isIP(hostname) &&
-      ![".localhost",".local",".internal",".test",".example",".invalid"].some(suffix=>hostname.endsWith(suffix));
-  } catch { return false; }
-}
-
 export function engineResults(input: {
   b:ReturnType<typeof benchmark>; a?:Awaited<ReturnType<typeof archiveExercise>>; opportunity:string;
-  processed:number; suggestionDirection:string|null; prior:CommandRun[]; kind:string; research:Research; ai:{status:string; note:string};
+  processed:number; prior:CommandRun[]; kind:string; research:Research; ai:{status:string; note:string};
 }): EngineResult[] {
-  const {b,a,opportunity,processed,suggestionDirection,prior,kind,research,ai}=input;
+  const {b,a,opportunity,processed,prior,kind,research,ai}=input;
   const scheduled=prior.filter(r=>r.kind==="scheduled");
   const results: [EngineResult["status"],string,string,EngineResult["evidence"]?][] = [
     [opportunity.startsWith("Source checked")?"measured":"blocked",opportunity,"Candidate: paid digital archive assessments for community organizations. Operational readiness: scope and pricing prototype available; market demand and cash receipts unverified.",[sources.opportunity]],
@@ -165,7 +153,7 @@ export function engineResults(input: {
     ["measured",research.programme,"A research question was selected from the approved programme rotation. See the run's method and limits.",research.evidence],
     ["measured","Benefit and limits recorded","This cycle links its methods to preservation, preparedness, research or prosperity. A benefit is not claimed until supported by evidence.",research.evidence],
     ["measured","Public actions limited","The public API cannot launch jobs, mutate infrastructure, publish submissions, or deploy changes."],
-    ["measured",`${processed} proposals triaged${suggestionDirection?`; ${suggestionDirection} selected`:""}`,"Suggestion text remains private. Only a research direction supported by at least three suggestions is used. No submission is executed or published verbatim."],
+    ["measured",`${processed} proposals triaged`,"Suggestions are private and categorized into approved research areas; no submitted text is executed or included in public results."],
   ];
   return catalogue.map(([id,name,programme],i)=>{
     const [status,metric,detail,evidence=[]]=results[i]!;

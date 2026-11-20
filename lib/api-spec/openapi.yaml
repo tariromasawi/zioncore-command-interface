@@ -36,18 +36,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SuggestionReceipt" }
-  /command/knowledge/export:
-    get:
-      operationId: exportCommandKnowledge
-      summary: Download the approved portable knowledge snapshot
-      responses:
-        "200":
-          description: Allowlisted versioned methods and public evidence only
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/KnowledgeSnapshot" }
-        "503":
-          description: Export is temporarily unavailable
   /healthz:
     get:
       operationId: healthCheck
@@ -70,7 +58,6 @@ components:
       properties:
         programme: { type: string, enum: [continuity, prosperity, heritage, preparedness] }
         text: { type: string, minLength: 20, maxLength: 1000 }
-        resourceUrl: { type: string, format: uri, maxLength: 2048, description: "Optional public HTTPS reference; stored privately and never fetched by the server." }
     SuggestionReceipt:
       type: object
       required: [id, status]
@@ -107,57 +94,6 @@ components:
         failedApproach: { type: string }
         next: { type: string }
         evidence: { type: array, items: { $ref: "#/components/schemas/Evidence" } }
-    LearningEntryEvaluation:
-      type: object
-      required: [runId, outcome, recordedAt]
-      properties:
-        runId: { type: string }
-        outcome: { type: string, enum: [passed, failed] }
-        recordedAt: { type: string }
-    LearningEntry:
-      type: object
-      required: [id, methodId, methodChecksum, title, programme, version, status, sourceRunId, createdAt, refreshAt, method, evidence, uncertainty, evaluations]
-      properties:
-        id: { type: string, pattern: "^[a-f0-9]{64}$" }
-        methodId: { type: string }
-        methodChecksum: { type: string, pattern: "^[a-f0-9]{64}$" }
-        title: { type: string }
-        programme: { type: string }
-        version: { type: string }
-        status: { type: string, enum: [verified, failed, stale] }
-        sourceRunId: { type: string }
-        createdAt: { type: string }
-        refreshAt: { type: string }
-        method: { type: string }
-        evidence: { type: array, items: { $ref: "#/components/schemas/Evidence" } }
-        uncertainty: { type: string }
-        evaluations: { type: array, items: { $ref: "#/components/schemas/LearningEntryEvaluation" } }
-    LearningMetrics:
-      type: object
-      required: [internalMissionRuns, externallyAssistedRuns, paidAiCalls, externalAiDisabledForMission, paidAiCallsAvoided, latestMethodVersion, billingPeriod, monthlyPaidAiSpendMicros, monthlyPaidAiReservedMicros, monthlyPaidAiRequests, monthlyPaidAiAllowanceMicros]
-      properties:
-        internalMissionRuns: { type: integer }
-        externallyAssistedRuns: { type: integer }
-        paidAiCalls: { type: integer }
-        externalAiDisabledForMission: { type: boolean }
-        paidAiCallsAvoided: { type: integer }
-        latestMethodVersion: { type: string }
-        billingPeriod: { type: string, pattern: "^\\d{4}-\\d{2}$" }
-        monthlyPaidAiSpendMicros: { type: integer, minimum: 0, description: Paid model spend settled in USD microdollars for the current Google Cloud billing month. }
-        monthlyPaidAiReservedMicros: { type: integer, minimum: 0, description: Conservative reservations for paid requests with unknown outcomes, in USD microdollars. }
-        monthlyPaidAiRequests: { type: integer, minimum: 0, description: Paid model HTTP requests accepted by the monthly budget gate, including token-count and retry requests. }
-        monthlyPaidAiAllowanceMicros: { type: integer, minimum: 0, description: Paid AI allowance configured for this application in USD microdollars; zero disables paid calls. }
-    KnowledgeSnapshot:
-      type: object
-      additionalProperties: false
-      required: [format, version, createdAt, entryCount, entries, checksum]
-      properties:
-        format: { type: string, enum: [zioncore-command-knowledge] }
-        version: { type: integer, enum: [1] }
-        createdAt: { type: string, format: date-time }
-        entryCount: { type: integer, minimum: 0, maximum: 400 }
-        entries: { type: array, maxItems: 400, items: { $ref: "#/components/schemas/LearningEntry" } }
-        checksum: { type: string, pattern: "^[a-f0-9]{64}$" }
     Warning:
       type: object
       required: [signal, source, outcome, horizon, confidence, action, status]
@@ -177,24 +113,9 @@ components:
         why: { type: string }
         action: { type: string }
         uncertainty: { type: string }
-    LearningTrace:
-      type: object
-      required: [tracking, mission, methodId, methodVersion, knowledgeId, knowledgeReused, verification, externalAiMode, externalAiCalls, paidAiCalls, paidCostMicros]
-      properties:
-        tracking: { type: string, enum: [measured, legacy] }
-        mission: { type: string }
-        methodId: { type: string }
-        methodVersion: { type: string }
-        knowledgeId: { type: [string, "null"] }
-        knowledgeReused: { type: boolean }
-        verification: { type: string, enum: [passed, failed, not-run] }
-        externalAiMode: { type: string, enum: [disabled, model, unknown] }
-        externalAiCalls: { type: integer }
-        paidAiCalls: { type: integer }
-        paidCostMicros: { type: integer }
     CommandRun:
       type: object
-      required: [id, kind, startedAt, finishedAt, outcome, engines, research, warnings, advice, learning]
+      required: [id, kind, startedAt, finishedAt, outcome, engines, research, warnings, advice]
       properties:
         id: { type: string }
         kind: { type: string }
@@ -205,10 +126,9 @@ components:
         research: { type: array, items: { $ref: "#/components/schemas/Research" } }
         warnings: { type: array, items: { $ref: "#/components/schemas/Warning" } }
         advice: { type: array, items: { $ref: "#/components/schemas/Advice" } }
-        learning: { $ref: "#/components/schemas/LearningTrace" }
     CommandFeed:
       type: object
-      required: [state, cadence, nextExpected, genesis, engines, runs, knowledge, learning]
+      required: [state, cadence, nextExpected, genesis, engines, runs]
       properties:
         state: { type: string, enum: [live, stale, blocked, example] }
         cadence: { type: string }
@@ -223,8 +143,6 @@ components:
             note: { type: string }
         engines: { type: array, items: { $ref: "#/components/schemas/EngineResult" } }
         runs: { type: array, items: { $ref: "#/components/schemas/CommandRun" } }
-        knowledge: { type: array, items: { $ref: "#/components/schemas/LearningEntry" } }
-        learning: { $ref: "#/components/schemas/LearningMetrics" }
     HealthStatus:
       type: object
       properties:

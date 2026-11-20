@@ -34,16 +34,13 @@ app.use((_req,res,next)=>{
 app.use("/api/command/feed",cors({
   origin:["https://tariromasawi.github.io"],methods:["GET","HEAD"],
 }));
-app.use("/api/command/suggestions",cors({
-  origin:["https://tariromasawi.github.io"],methods:["POST"],allowedHeaders:["Content-Type"],
-}));
 app.use(express.json({limit:"8kb"}));
 
 app.use("/api", router);
 if (process.env["COMMAND_WEB_DIR"]) {
   const web=resolve(process.env["COMMAND_WEB_DIR"]);
   app.use(express.static(web,{dotfiles:"deny"}));
-  app.get(["/","/command.html","/engines/:id","/research","/knowledge","/runs","/runs/:id","/genesis","/continuity"],(_req,res)=>res.sendFile(resolve(web,"index.html")));
+  app.get(["/","/command.html","/engines/:id","/research","/runs","/runs/:id","/genesis","/continuity"],(_req,res)=>res.sendFile(resolve(web,"index.html")));
 }
 
 const hideError: ErrorRequestHandler=(error,_req,res,next)=>{

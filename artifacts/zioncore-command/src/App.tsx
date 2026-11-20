@@ -13,7 +13,6 @@ import RunsPage from '@/pages/runs';
 import RunPage from '@/pages/run';
 import GenesisPage from '@/pages/genesis';
 import ContinuityPage from '@/pages/continuity';
-import KnowledgePage from '@/pages/knowledge';
 
 const queryClient = new QueryClient();
 
@@ -26,7 +25,6 @@ function Router() {
           <Route path="/command.html" component={Dashboard} />
           <Route path="/engines/:id" component={EnginePage} />
           <Route path="/research" component={ResearchPage} />
-          <Route path="/knowledge" component={KnowledgePage} />
           <Route path="/runs" component={RunsPage} />
           <Route path="/runs/:id" component={RunPage} />
           <Route path="/genesis" component={GenesisPage} />

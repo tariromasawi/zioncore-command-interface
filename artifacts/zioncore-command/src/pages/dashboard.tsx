@@ -101,14 +101,6 @@ function Board({ feed }: { feed: CommandFeed }) {
             </article>))}</div>
         )}
       </Panel>
-      <Panel kicker="Knowledge retained" title="Proven methods that run without AI" action={<Link href="/knowledge" className="inline-flex min-h-10 items-center px-2 text-xs text-primary underline">Knowledge base</Link>}>
-        <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Internal replays</dt><dd className="mt-1">{feed.learning.internalMissionRuns} verified</dd></div>
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">External support</dt><dd className="mt-1">{feed.learning.externallyAssistedRuns} runs</dd></div>
-          <div><dt className="font-mono text-[10px] uppercase text-muted-foreground">Paid AI calls</dt><dd className="mt-1">{feed.learning.paidAiCalls} · mission calls disabled</dd></div>
-        </dl>
-        <p className="mt-2 text-xs text-muted-foreground">Latest retained method: {feed.learning.latestMethodVersion}. <a href="/api/command/knowledge/export" download className="text-primary underline">Export evidence and method versions</a></p>
-      </Panel>
 
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <Panel kicker={"Catalogue · " + feed.engines.length + " engines"} title="Operational engines" action={<span className="font-mono text-[10px] text-muted-foreground">{counts.measured} measured · {counts.example} example · {counts.blocked} blocked</span>}>

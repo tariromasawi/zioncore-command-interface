@@ -9,8 +9,6 @@ import type { CommandFeedGenesis } from './commandFeedGenesis';
 import type { CommandFeedState } from './commandFeedState';
 import type { CommandRun } from './commandRun';
 import type { EngineResult } from './engineResult';
-import type { LearningEntry } from './learningEntry';
-import type { LearningMetrics } from './learningMetrics';
 
 export interface CommandFeed {
   state: CommandFeedState;
@@ -20,6 +18,4 @@ export interface CommandFeed {
   genesis: CommandFeedGenesis;
   engines: EngineResult[];
   runs: CommandRun[];
-  knowledge: LearningEntry[];
-  learning: LearningMetrics;
 }

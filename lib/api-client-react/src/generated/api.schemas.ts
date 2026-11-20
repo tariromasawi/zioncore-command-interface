@@ -22,11 +22,6 @@ export interface SuggestionInput {
      * @maxLength 1000
      */
   text: string;
-  /**
-     * Optional public HTTPS reference; stored privately and never fetched by the server.
-     * @maxLength 2048
-     */
-  resourceUrl?: string;
 }
 
 export interface SuggestionReceipt {
@@ -70,108 +65,6 @@ export interface Research {
   evidence: Evidence[];
 }
 
-export type LearningEntryEvaluationOutcome = typeof LearningEntryEvaluationOutcome[keyof typeof LearningEntryEvaluationOutcome];
-
-
-export const LearningEntryEvaluationOutcome = {
-  passed: 'passed',
-  failed: 'failed',
-} as const;
-
-export interface LearningEntryEvaluation {
-  runId: string;
-  outcome: LearningEntryEvaluationOutcome;
-  recordedAt: string;
-}
-
-export type LearningEntryStatus = typeof LearningEntryStatus[keyof typeof LearningEntryStatus];
-
-
-export const LearningEntryStatus = {
-  verified: 'verified',
-  failed: 'failed',
-  stale: 'stale',
-} as const;
-
-export interface LearningEntry {
-  /** @pattern ^[a-f0-9]{64}$ */
-  id: string;
-  methodId: string;
-  /** @pattern ^[a-f0-9]{64}$ */
-  methodChecksum: string;
-  title: string;
-  programme: string;
-  version: string;
-  status: LearningEntryStatus;
-  sourceRunId: string;
-  createdAt: string;
-  refreshAt: string;
-  method: string;
-  evidence: Evidence[];
-  uncertainty: string;
-  evaluations: LearningEntryEvaluation[];
-}
-
-export interface LearningMetrics {
-  internalMissionRuns: number;
-  externallyAssistedRuns: number;
-  paidAiCalls: number;
-  externalAiDisabledForMission: boolean;
-  paidAiCallsAvoided: number;
-  latestMethodVersion: string;
-  /** @pattern ^\d{4}-\d{2}$ */
-  billingPeriod: string;
-  /**
-     * Paid model spend settled in USD microdollars for the current Google Cloud billing month.
-     * @minimum 0
-     */
-  monthlyPaidAiSpendMicros: number;
-  /**
-     * Conservative reservations for paid requests with unknown outcomes
-     * @minimum 0
-     */
-  monthlyPaidAiReservedMicros: number;
-  /**
-     * Paid model HTTP requests accepted by the monthly budget gate
-     * @minimum 0
-     */
-  monthlyPaidAiRequests: number;
-  /**
-     * Paid AI allowance configured for this application in USD microdollars; zero disables paid calls.
-     * @minimum 0
-     */
-  monthlyPaidAiAllowanceMicros: number;
-}
-
-export type KnowledgeSnapshotFormat = typeof KnowledgeSnapshotFormat[keyof typeof KnowledgeSnapshotFormat];
-
-
-export const KnowledgeSnapshotFormat = {
-  'zioncore-command-knowledge': 'zioncore-command-knowledge',
-} as const;
-
-export type KnowledgeSnapshotVersion = typeof KnowledgeSnapshotVersion[keyof typeof KnowledgeSnapshotVersion];
-
-
-export const KnowledgeSnapshotVersion = {
-  NUMBER_1: 1,
-} as const;
-
-export interface KnowledgeSnapshot {
-  format: KnowledgeSnapshotFormat;
-  version: KnowledgeSnapshotVersion;
-  createdAt: string;
-  /**
-     * @minimum 0
-     * @maximum 400
-     */
-  entryCount: number;
-  /** @maxItems 400 */
-  entries: LearningEntry[];
-  /** @pattern ^[a-f0-9]{64}$ */
-  checksum: string;
-}
-
 export interface Warning {
   signal: string;
   source: string;
@@ -189,47 +82,6 @@ export interface Advice {
   uncertainty: string;
 }
 
-export type LearningTraceTracking = typeof LearningTraceTracking[keyof typeof LearningTraceTracking];
-
-
-export const LearningTraceTracking = {
-  measured: 'measured',
-  legacy: 'legacy',
-} as const;
-
-export type LearningTraceVerification = typeof LearningTraceVerification[keyof typeof LearningTraceVerification];
-
-
-export const LearningTraceVerification = {
-  passed: 'passed',
-  failed: 'failed',
-  'not-run': 'not-run',
-} as const;
-
-export type LearningTraceExternalAiMode = typeof LearningTraceExternalAiMode[keyof typeof LearningTraceExternalAiMode];
-
-
-export const LearningTraceExternalAiMode = {
-  disabled: 'disabled',
-  model: 'model',
-  unknown: 'unknown',
-} as const;
-
-export interface LearningTrace {
-  tracking: LearningTraceTracking;
-  mission: string;
-  methodId: string;
-  methodVersion: string;
-  /** @nullable */
-  knowledgeId: string | null;
-  knowledgeReused: boolean;
-  verification: LearningTraceVerification;
-  externalAiMode: LearningTraceExternalAiMode;
-  externalAiCalls: number;
-  paidAiCalls: number;
-  paidCostMicros: number;
-}
-
 export interface CommandRun {
   id: string;
   kind: string;
@@ -240,7 +92,6 @@ export interface CommandRun {
   research: Research[];
   warnings: Warning[];
   advice: Advice[];
-  learning: LearningTrace;
 }
 
 export type CommandFeedState = typeof CommandFeedState[keyof typeof CommandFeedState];
@@ -268,8 +119,6 @@ export interface CommandFeed {
   genesis: CommandFeedGenesis;
   engines: EngineResult[];
   runs: CommandRun[];
-  knowledge: LearningEntry[];
-  learning: LearningMetrics;
 }
 
 export interface HealthStatus {

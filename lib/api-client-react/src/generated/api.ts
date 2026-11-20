@@ -27,7 +27,6 @@ import type {
 import type {
   CommandFeed,
   HealthStatus,
-  KnowledgeSnapshot,
   SuggestionInput,
   SuggestionReceipt
 } from './api.schemas';
@@ -247,107 +246,6 @@ export const useSubmitCommandSuggestion = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getSubmitCommandSuggestionMutationOptions(options), queryClient);
     }
-
-export const getExportCommandKnowledgeUrl = () => {
-
-
-
-
-  return `/api/command/knowledge/export`
-}
-
-/**
- * @summary Download the approved portable knowledge snapshot
- */
-export const exportCommandKnowledge = async ( options?: Parameters<typeof customFetch>[1]): Promise<KnowledgeSnapshot> => {
-
-  return customFetch<KnowledgeSnapshot>(getExportCommandKnowledgeUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getExportCommandKnowledgeQueryKey = () => {
-    return [
-    `/api/command/knowledge/export`
-    ] as const;
-    }
-
-
-export const getExportCommandKnowledgeQueryOptions = <TData = Awaited<ReturnType<typeof exportCommandKnowledge>>, TError = ErrorType<void>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getExportCommandKnowledgeQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportCommandKnowledge>>> = ({ signal }) => exportCommandKnowledge({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ExportCommandKnowledgeQueryResult = NonNullable<Awaited<ReturnType<typeof exportCommandKnowledge>>>
-export type ExportCommandKnowledgeQueryError = ErrorType<void>
-
-
-export function useExportCommandKnowledge<TData = Awaited<ReturnType<typeof exportCommandKnowledge>>, TError = ErrorType<void>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof exportCommandKnowledge>>,
-          TError,
-          Awaited<ReturnType<typeof exportCommandKnowledge>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useExportCommandKnowledge<TData = Awaited<ReturnType<typeof exportCommandKnowledge>>, TError = ErrorType<void>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof exportCommandKnowledge>>,
-          TError,
-          Awaited<ReturnType<typeof exportCommandKnowledge>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useExportCommandKnowledge<TData = Awaited<ReturnType<typeof exportCommandKnowledge>>, TError = ErrorType<void>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Download the approved portable knowledge snapshot
- */
-
-export function useExportCommandKnowledge<TData = Awaited<ReturnType<typeof exportCommandKnowledge>>, TError = ErrorType<void>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCommandKnowledge>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getExportCommandKnowledgeQueryOptions(options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
 
 export const getHealthCheckUrl = () => {
 
