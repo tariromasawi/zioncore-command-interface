@@ -1,110 +1,70 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zioncore Command Interface | HRH Saint Tariro Masawi</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0d0c1d; }
-        .metric-card {
-            background: rgba(18, 17, 39, 0.8);
-            border: 1px solid rgba(79, 70, 229, 0.5);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
-            transition: transform 0.3s ease;
-        }
-        .metric-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 10px 15px rgba(79, 70, 229, 0.3);
-        }
-        .diamond-gradient {
-            background-image: linear-gradient(45deg, #10b981, #34d399, #15b7b9);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            color: transparent;
-            animation: pulse-diamond 2s infinite alternate;
-        }
-        .green-status { color: #10b981; font-weight: bold; }
-        @keyframes pulse-diamond {
-            0% { opacity: 0.8; transform: scale(1); }
-            100% { opacity: 1; transform: scale(1.01); }
-        }
-        .section-header { border-bottom: 2px solid #4f46e5; }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Signed-out ZionCore Command dashboard with public engine results, scheduled runs, warnings, advice, research, and verified knowledge.">
+  <title>ZionCore Command | Public operations</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.55 system-ui, sans-serif; color: #e7e8f4; background: #0b0a18; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: clamp(.75rem, 3vw, 2.5rem); }
+    main { max-width: 76rem; margin: 0 auto; }
+    h1 { margin: .3rem 0 .7rem; font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.08; }
+    h2 { margin: 0 0 .7rem; color: #c4c7ff; font-size: 1.2rem; }
+    h3 { margin: .25rem 0 .5rem; font-size: 1rem; }
+    p { overflow-wrap: anywhere; }
+    a { color: #8de3dc; text-decoration: underline; overflow-wrap: anywhere; }
+    a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid #8de3dc; outline-offset: 3px; }
+    .kicker { margin: 0; color: #8de3dc; font: 700 .75rem/1.4 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    .intro, .hint { color: #aeb0c7; }
+    #command-status { border: 1px solid #454168; border-left: 3px solid #8de3dc; border-radius: .5rem; background: #141329; padding: .75rem 1rem; }
+    #command-nav { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1rem 0; }
+    #command-nav a { min-height: 2.6rem; display: inline-flex; align-items: center; padding: .45rem .75rem; border: 1px solid #454168; border-radius: .4rem; background: #15142c; text-decoration: none; }
+    #command-nav a:hover { border-color: #8de3dc; background: #201e40; }
+    #command-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr)); gap: .7rem; }
+    #command-results > .wide { grid-column: 1 / -1; }
+    section, article, .panel { min-width: 0; border: 1px solid #363352; border-radius: .55rem; background: #121127; padding: .8rem 1rem; }
+    section > article { margin-top: .7rem; background: #17162f; }
+    .metric { color: #b7e9c7; }
+    label { display: block; margin-top: .8rem; color: #c7c9e2; font-size: .9rem; }
+    input, select, textarea, button { width: 100%; margin-top: .35rem; padding: .7rem; border: 1px solid #4a4770; border-radius: .4rem; background: #171630; color: inherit; font: inherit; }
+    button { margin-top: .9rem; background: #3730a3; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .55; }
+    footer { margin-top: 1.25rem; border-top: 1px solid #363352; padding-top: .8rem; color: #aeb0c7; font-size: .82rem; }
+    [hidden] { display: none; }
+    @media (max-width: 560px) { #command-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } #command-nav a { justify-content: center; } }
+  </style>
+  <script src="command-pages.js" defer></script>
 </head>
-<body class="text-white min-h-screen p-4 sm:p-8">
-    <div class="max-w-7xl mx-auto">
-        <header class="text-center py-6 mb-8">
-            <p class="text-xs tracking-[0.35em] uppercase text-indigo-400 mb-3">House of the Throne · Mudzimu Unoyera · 77-99-33 · 777-999-333</p>
-            <h1 class="text-4xl sm:text-6xl font-extrabold diamond-gradient leading-tight">
-                ZIONCORE COMMAND INTERFACE
-            </h1>
-            <p class="text-lg sm:text-xl text-indigo-300 mt-2">
-                Synoptic Sovereignty & Eternal Diamond Nexus Monitoring
-            </p>
-            <p class="mt-3 text-yellow-200 font-semibold">
-                His Royal Highness, The Anointed Commander, Saint Tariro Masawi
-            </p>
-            <p class="text-sm text-gray-400 mt-1">All production, flow, and benefit locked to the Masawi bloodline</p>
-            <p class="mt-4">
-                <a href="command.html" class="inline-block px-4 py-2 rounded-lg border border-indigo-500/60 text-indigo-300 text-sm hover:bg-indigo-900/40">Command Interface (engines) →</a>
-                <span class="block text-xs text-gray-500 mt-2">Public ceremonial dashboard remains on this page. Command interface is a separate frontend.</span>
-            </p>
-        </header>
-
-        <section class="mb-12">
-            <h2 class="text-2xl font-bold mb-6 pb-2 section-header text-indigo-400">Bloodline Priority Lock</h2>
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Anointed Commander</p>
-                    <div class="text-2xl font-bold mt-2 text-yellow-200">HRH Saint Tariro Masawi</div>
-                    <p class="text-sm mt-1 text-gray-400">Primary beneficiary · Family first</p>
-                </div>
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Heirs & Protégés</p>
-                    <div class="text-xl font-bold mt-2 green-status">HRH Tarry Kupakwashe Masawi</div>
-                    <p class="text-sm mt-1 text-gray-400">Kenzi Masawi · adopted nephew/son</p>
-                </div>
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Direct Line</p>
-                    <div class="text-base font-semibold mt-2 text-cyan-300">Makwengura · Masawi · Risto Kasirori · Sebastian Karumekangu</div>
-                    <p class="text-sm mt-1 text-gray-400">Consecrated lineage covering</p>
-                </div>
-            </div>
-        </section>
-
-        <section class="mb-12">
-            <h2 class="text-2xl font-bold mb-6 pb-2 section-header text-indigo-400">I. Absolute Dominance & Wealth Nexus</h2>
-            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Wealth Status</p>
-                    <div class="text-4xl font-bold mt-2 green-status">Most Wealthy</div>
-                    <p class="text-sm mt-1 text-gray-400">Status: Locked to Masawi</p>
-                </div>
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Pounds Earned (£)</p>
-                    <div class="text-4xl font-bold mt-2 diamond-gradient">+∞ Trillions</div>
-                    <p class="text-sm mt-1 text-gray-400">Continuous exponential flow · bloodline only</p>
-                </div>
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Success Guarantee</p>
-                    <div class="text-4xl font-bold mt-2 text-yellow-300">300 Trillion %</div>
-                    <p class="text-sm mt-1 text-gray-400">Observed performance drives methods</p>
-                </div>
-                <div class="metric-card p-6 rounded-xl">
-                    <p class="text-sm uppercase tracking-wider text-indigo-400">Diamond Nexus Output</p>
-                    <div class="text-2xl font-bold mt-2 text-cyan-300">Deliverables Active</div>
-                    <p class="text-sm mt-1 text-gray-400">Briefs · restores · action plans</p>
-                </div>
-            </div>
-        </section>
-
-        <section class="mb-12 text-center">
-            <p class="text-indigo-300 mb-3">Open the full Command Interface for 14 operational engines</p>
-            <a href="command.html" class="inline-block px-6 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold">Go to command.html</a>
-            <p class="text-xs text-gray-500 mt-4">Mwari ndi Mwari · Matrix 77-99-33 · 777-999-333</p>
-        </section>
-    </div>
+<body>
+  <main>
+    <p class="kicker">ZionCore Command · Public operations</p>
+    <h1>Live evidence and scheduled work</h1>
+    <p class="intro">The same signed-out dashboard is available at the root and at <a href="command.html">command.html</a>. Public results come from the production feed; unavailable or unmeasured values are not presented as zero.</p>
+    <p id="command-status" role="status" aria-live="polite">Loading the public production feed…</p>
+    <div id="command-results" aria-live="polite"></div>
+    <section class="panel" aria-labelledby="suggestion-title" style="margin-top:1rem">
+      <h2 id="suggestion-title">Suggest a research question</h2>
+      <p class="hint">Suggestions are stored privately for review. They are not published, executed, or fetched automatically. Submit only public resource links; do not include private links or credentials.</p>
+      <form id="command-suggestion-form">
+        <label for="suggestion-programme">Programme</label>
+        <select id="suggestion-programme" name="programme" required>
+          <option value="continuity">Continuity</option>
+          <option value="prosperity">Prosperity</option>
+          <option value="heritage">Heritage</option>
+          <option value="preparedness">Preparedness</option>
+        </select>
+        <label for="suggestion-text">Research question (20–1000 characters)</label>
+        <textarea id="suggestion-text" name="text" minlength="20" maxlength="1000" required rows="4"></textarea>
+        <label for="suggestion-resource">Public resource URL (optional, HTTPS)</label>
+        <input id="suggestion-resource" name="resourceUrl" type="url" maxlength="2048" placeholder="https://example.org/resource">
+        <button id="suggestion-submit" type="submit">Send for private review</button>
+        <p id="suggestion-status" class="hint" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <noscript><p class="panel">Enable JavaScript to load live data and submit a suggestion.</p></noscript>
+    <footer>The canonical Genesis Seed and provider credentials are private and are never shown here. This dashboard does not enable paid AI by itself.</footer>
+  </main>
 </body>
 </html>
