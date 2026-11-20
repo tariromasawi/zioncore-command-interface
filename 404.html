@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opening ZionCore Command</title>
+</head>
+<body>
+  <p>Opening the requested ZionCore Command view…</p>
+  <script>
+    (() => {
+      const base = "/zioncore-command-interface/";
+      const requested = location.pathname.startsWith(base)
+        ? location.pathname.slice(base.length).replace(/^\/+|\/+$/g, "")
+        : "";
+      const allowed = /^(engines\/[a-z0-9-]+|runs(?:\/[a-z0-9-]+)?|warnings|advice|research|knowledge|costs|genesis|continuity)$/i;
+      const target = new URL(base + "command.html", location.origin);
+      target.hash = allowed.test(requested) ? `/${requested}` : "/";
+      location.replace(target.href);
+    })();
+  </script>
+</body>
+</html>

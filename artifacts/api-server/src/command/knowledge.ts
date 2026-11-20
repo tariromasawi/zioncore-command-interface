@@ -48,7 +48,7 @@ export function learnEvolution(runId:string,at=new Date()):LearningEntry {
   return {
     id:knowledgeId(evolutionMethodId,evolutionMethodVersion,methodHash),
     methodId:evolutionMethodId,methodChecksum:methodHash,
-    title:"Indexed lookups with baseline and rollback checks",
+    title:"Indexed lookups with forward-only verification",
     programme:"Operations",version:evolutionMethodVersion,status:"verified",
     sourceRunId:runId,createdAt:at.toISOString(),
     refreshAt:new Date(+at+30*86_400_000).toISOString(),
@@ -84,7 +84,7 @@ export function verifyMethod(entry:LearningEntry) {
 export function evaluateEvolutionMethod(entry:LearningEntry) {
   if(!verifyMethod(entry)||currentKnowledge(entry).status!=="verified")throw new Error("Knowledge method is invalid or stale");
   const result=benchmark();
-  if(!result.promoted||!result.rolledBack)throw new Error("Evolution method failed equivalence or rollback checks");
+  if(!result.promoted||!result.rolledBack)throw new Error("Evolution method failed equivalence or pre-acceptance rejection checks");
   return result;
 }
 

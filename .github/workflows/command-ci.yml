@@ -20,8 +20,42 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm --filter @workspace/api-server run test
+        env:
+          COMMAND_GENESIS_TEST_SEED_PATH: ${{ github.workspace }}/Genesis seed.ts
       - run: bash -n ops/cloud.sh
+      - run: bash -n ops/prepare-genesis-seed.sh
       - run: docker build -t zioncore-command:ci .
+      - name: Check the approved Seed read-only mount with AI disabled
+        run: |
+          seed_mount="$(mktemp -d)"
+          trap 'rm -rf "$seed_mount"' EXIT
+          mkdir -p "$seed_mount/approved/1.1.0"
+          cp "Genesis seed.ts" "$seed_mount/approved/1.1.0/genesis-seed.ts"
+          docker run --rm \
+            --mount "type=bind,source=$seed_mount,target=/mnt/genesis,readonly" \
+            -e NODE_ENV=production \
+            -e COMMAND_GENESIS_PATH=/mnt/genesis/approved/1.1.0/genesis-seed.ts \
+            -e COMMAND_GENESIS_VERSION=1.1.0 \
+            -e COMMAND_GENESIS_SHA256=8199eb2b080c6ac56f71443c1506173f8227dc9df58a145801b56e9e2fd538c6 \
+            -e COMMAND_ENABLE_GENESIS_AI=0 \
+            -e COMMAND_ENABLE_DAILY_GENESIS=0 \
+            -e COMMAND_ENABLE_PAID_AI=0 \
+            -e COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0 \
+            zioncore-command:ci node dist/jobMain.mjs seed-check
+          if docker run --rm \
+            --mount "type=bind,source=$seed_mount,target=/mnt/genesis,readonly" \
+            -e NODE_ENV=production \
+            -e COMMAND_GENESIS_PATH=/mnt/genesis/approved/1.1.0/genesis-seed.ts \
+            -e COMMAND_GENESIS_VERSION=1.1.0 \
+            -e COMMAND_GENESIS_SHA256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
+            -e COMMAND_ENABLE_GENESIS_AI=0 \
+            -e COMMAND_ENABLE_DAILY_GENESIS=0 \
+            -e COMMAND_ENABLE_PAID_AI=0 \
+            -e COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0 \
+            zioncore-command:ci node dist/jobMain.mjs seed-check; then
+            echo "Seed check accepted a mismatched checksum" >&2
+            exit 1
+          fi
       - name: Check image entry points
         run: |
           docker volume create command-ci-state

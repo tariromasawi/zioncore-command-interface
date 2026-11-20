@@ -15,6 +15,12 @@ INBOX=zioncore-command-inbox
 WEB=zioncore-command-public-web
 RUNNER=zioncore-command-ops
 DAILY=zioncore-command-research
+GENESIS_BUCKET="zioncore-command-genesis-seed-$NUMBER"
+GENESIS_OBJECT=approved/1.1.0/genesis-seed.ts
+GENESIS_VERSION=1.1.0
+GENESIS_SHA256=8199eb2b080c6ac56f71443c1506173f8227dc9df58a145801b56e9e2fd538c6
+GENESIS_BYTES=463037
+GENESIS_PATH="/mnt/genesis/$GENESIS_OBJECT"
 POOL=command-github
 PROVIDER=command-release
 SA_SUFFIX="@$PROJECT.iam.gserviceaccount.com"
@@ -31,20 +37,33 @@ verify_project() {
 }
 
 inventory() {
-  echo "--- Billing ---"
-  g billing projects describe "$PROJECT" --format='table(projectId,billingEnabled)' || true
-  echo "--- Enabled services (Firebase status is visible here; no Firebase project changes) ---"
-  g services list --enabled --format='value(config.name)'
-  echo "--- Firestore databases ---"
-  g firestore databases list --format='table(name,locationId,type,deleteProtectionState)' || true
-  echo "--- Cloud Run services and jobs in London ---"
-  g run services list --region="$REGION" --format='table(metadata.name,status.url)' || true
-  g run jobs list --region="$REGION" --format='table(metadata.name)' || true
-  echo "--- Cloud Scheduler in London, bucket names, service identities and secret names ---"
-  g scheduler jobs list --location="$REGION" --format='table(name,state,schedule,timeZone)' || true
-  g storage buckets list --format='value(name)' || true
-  g iam service-accounts list --format='table(email,displayName)' || true
-  g secrets list --format='value(name)' || true
+  echo "--- Active Google identity ---"
+  g auth list --filter=status:ACTIVE --format='value(account)'
+  echo "--- Cloud Run research job in the approved project and region ---"
+  g run jobs describe "$DAILY" --region="$REGION" --format=json |
+    jq '{name:.metadata.name,labels:.metadata.labels,generation:.metadata.generation}'
+}
+
+verify_genesis_asset() {
+  local bucket_json object_json
+  if ! bucket_json="$(g storage buckets describe "gs://$GENESIS_BUCKET" --format=json)"; then
+    die "Genesis Seed bucket gs://$GENESIS_BUCKET is unavailable. No Cloud Run changes were made."
+  fi
+  jq -e '.location|ascii_downcase=="europe-west2"' <<<"$bucket_json" >/dev/null ||
+    die "Genesis Seed bucket must be in europe-west2."
+  jq -e '.labels.zioncore-command=="public-release" and .labels.purpose=="genesis-seed"
+    and .iamConfiguration.publicAccessPrevention=="enforced"
+    and .iamConfiguration.uniformBucketLevelAccess.enabled==true' <<<"$bucket_json" >/dev/null ||
+    die "Genesis Seed bucket must be Command-owned, private, and use uniform bucket-level access."
+  if ! object_json="$(g storage objects describe "gs://$GENESIS_BUCKET/$GENESIS_OBJECT" --format=json)"; then
+    die "Approved Genesis Seed object is missing from gs://$GENESIS_BUCKET/$GENESIS_OBJECT. No Cloud Run changes were made."
+  fi
+  jq -e --arg size "$GENESIS_BYTES" --arg version "$GENESIS_VERSION" --arg sha "$GENESIS_SHA256" \
+    '.size|tostring==$size' <<<"$object_json" >/dev/null ||
+    die "Genesis Seed object has the wrong size; no Cloud Run changes were made."
+  jq -e --arg version "$GENESIS_VERSION" --arg sha "$GENESIS_SHA256" \
+    '.metadata.version==$version and .metadata.sha256==$sha' <<<"$object_json" >/dev/null ||
+    die "Genesis Seed object metadata does not match the approved version and checksum; no Cloud Run changes were made."
 }
 
 managed_run_resource() {
@@ -104,21 +123,39 @@ stage_release() {
     --min=0 --max=3 --concurrency=40 --timeout=20s --memory=512Mi --cpu=1 --port=8080 \
     --labels="zioncore-command=public-release,commit=$commit" "${public[@]}" \
     --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_ENABLE_INTAKE=1"
-  local name command
-  for name in "$RUNNER" "$DAILY"; do
-    command=scheduled; [[ "$name" == "$DAILY" ]] && command=daily-review
-    g run jobs deploy "$name" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
-      --command=node --args="dist/jobMain.mjs,$command" --task-timeout=180s --max-retries=1 \
-      --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
-      --labels="zioncore-command=public-release,commit=$commit" \
-      --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB"
-  done
+  g run jobs deploy "$RUNNER" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
+    --command=node --args=dist/jobMain.mjs,scheduled --task-timeout=180s --max-retries=1 \
+    --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
+    --labels="zioncore-command=public-release,commit=$commit" \
+    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB"
+  g run jobs deploy "$DAILY" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
+    --command=node --args=dist/jobMain.mjs,daily-review --task-timeout=180s --max-retries=1 \
+    --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
+    --labels="zioncore-command=public-release,commit=$commit" \
+    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_GENESIS_PATH=$GENESIS_PATH,COMMAND_GENESIS_VERSION=$GENESIS_VERSION,COMMAND_GENESIS_SHA256=$GENESIS_SHA256,COMMAND_ENABLE_GENESIS_AI=0,COMMAND_ENABLE_DAILY_GENESIS=0,COMMAND_ENABLE_PAID_AI=0,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0" \
+    --add-volume="name=genesis-seed,type=cloud-storage,bucket=$GENESIS_BUCKET,readonly=true" \
+    --add-volume-mount="volume=genesis-seed,mount-path=/mnt/genesis"
   local url
   url="$(g run services describe "$WEB" --region="$REGION" --format='value(status.url)')"
   [[ "$url" == https://*.run.app ]] || die "Cloud Run did not return its public URL."
   printf 'Cloud Run: %s\nCommit: %s\nImage: %s\n' "$url" "$commit" "$command_image"
   curl --retry 6 --retry-all-errors --retry-delay 3 --fail-with-body --silent --show-error "$url/api/command/feed" |
     jq -e '{state, engines:(.engines|length), cadence, nextExpected} | select(.engines==14)'
+}
+
+verify_seed_execution() {
+  local output execution
+  output="$(g run jobs execute "$DAILY" --region="$REGION" --args=dist/jobMain.mjs,seed-check --wait 2>&1)" ||
+    { printf '%s\n' "$output" >&2; die "Read-only Genesis Seed mount check failed."; }
+  printf '%s\n' "$output"
+  execution="$(sed -n 's/^Execution \[\([^]]*\)\].*/\1/p' <<<"$output" | tail -1)"
+  if [[ -z "$execution" ]]; then
+    execution="$(g run jobs executions list --job="$DAILY" --region="$REGION" --sort-by='~metadata.createTime' --limit=1 --format='value(metadata.name)')"
+  fi
+  [[ -n "$execution" ]] || die "Seed mount check completed but its Cloud Run execution ID could not be read."
+  printf 'Seed check execution: %s\n' "$execution"
+  g run jobs executions describe "$execution" --region="$REGION" \
+    --format='yaml(metadata.name,status.completionTime,status.conditions)'
 }
 
 configure_schedule() {
@@ -180,6 +217,10 @@ esac
   die "Use a clean checkout at the exact reviewed 40-character commit."
 verify_project
 
+if [[ "$mode" == deploy ]]; then
+  verify_genesis_asset
+fi
+
 if [[ "$mode" == bootstrap ]]; then
   inventory
   billing="$(g billing projects describe "$PROJECT" --format='value(billingEnabled)')"
@@ -235,4 +276,10 @@ if [[ "$mode" == bootstrap ]]; then
   configure_schedule "$DAILY" "5 0 * * *"
   if [[ "${COMMAND_SKIP_FEDERATION:-0}" != 1 ]]; then configure_federation; fi
   echo "Wait for the actual scheduler before claiming scheduled-run verification. Do not force a fixture incident into the schedule."
+fi
+
+if [[ "$mode" == deploy ]]; then
+  verify_genesis_asset
+  verify_seed_execution
+  echo "Cloud Scheduler was not changed; the existing 00:05 UTC daily schedule is preserved."
 fi

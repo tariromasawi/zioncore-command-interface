@@ -46,6 +46,7 @@ export async function genesisStatus() {
 }
 
 export function configuredModels(env=process.env): Model[] {
+  if(env.COMMAND_ENABLE_GENESIS_AI!=="1")return [];
   const models:Model[]=[];
   const hasApprovedSeedConfig=!!env.COMMAND_GENESIS_PATH
     &&!!env.COMMAND_GENESIS_SHA256&&/^[a-f0-9]{64}$/.test(env.COMMAND_GENESIS_SHA256)
@@ -76,12 +77,14 @@ function cost(input:number, output:number, model:Model) {
 }
 
 export async function askGenesis({
-  seed, models, ledger, cap, request=fetch, complex=false, env=process.env,
+  seed, models, ledger, cap, request, complex=false, env=process.env,
 }: {
   seed:Seed|null; models:Model[]; ledger:Pick<CommandStore,"reserve"|"settle">;
   cap?:number; request?:typeof fetch; complex?:boolean; env?:NodeJS.ProcessEnv;
 }):Promise<AiResult> {
-  if (!seed || sha(seed.text)!==seed.checksum || !env.COMMAND_GENESIS_PATH
+  if(process.env.NODE_ENV==="production" || env.NODE_ENV==="production" || !request || request===fetch)
+    return {status:"blocked",note:"Live AI research is blocked; provider billing and output limits are not verified.",externalAiCalls:0,paidAiCalls:0};
+  if (env.COMMAND_ENABLE_GENESIS_AI!=="1" || !seed || sha(seed.text)!==seed.checksum || !env.COMMAND_GENESIS_PATH
     || env.COMMAND_GENESIS_SHA256!==seed.checksum || env.COMMAND_GENESIS_VERSION!==seed.version)
     return {status:"blocked",note:"Canonical Genesis bytes have not been approved and verified.",externalAiCalls:0,paidAiCalls:0};
   const configuredCap=paidAiMonthlyCap(env);

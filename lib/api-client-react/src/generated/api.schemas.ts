@@ -112,6 +112,17 @@ export interface LearningEntry {
   evaluations: LearningEntryEvaluation[];
 }
 
+/**
+ * Actual provider billing is unknown when paid requests or estimates are recorded.
+ */
+export type LearningMetricsMonthlyPaidAiCostStatus = typeof LearningMetricsMonthlyPaidAiCostStatus[keyof typeof LearningMetricsMonthlyPaidAiCostStatus];
+
+
+export const LearningMetricsMonthlyPaidAiCostStatus = {
+  'none-recorded': 'none-recorded',
+  unreconciled: 'unreconciled',
+} as const;
+
 export interface LearningMetrics {
   internalMissionRuns: number;
   externallyAssistedRuns: number;
@@ -122,7 +133,7 @@ export interface LearningMetrics {
   /** @pattern ^\d{4}-\d{2}$ */
   billingPeriod: string;
   /**
-     * Paid model spend settled in USD microdollars for the current Google Cloud billing month.
+     * Sum of settled usage-based estimates in USD microdollars; not a provider invoice or actual total.
      * @minimum 0
      */
   monthlyPaidAiSpendMicros: number;
@@ -131,6 +142,8 @@ export interface LearningMetrics {
      * @minimum 0
      */
   monthlyPaidAiReservedMicros: number;
+  /** Actual provider billing is unknown when paid requests or estimates are recorded. */
+  monthlyPaidAiCostStatus: LearningMetricsMonthlyPaidAiCostStatus;
   /**
      * Paid model HTTP requests accepted by the monthly budget gate
      * @minimum 0
@@ -227,7 +240,11 @@ export interface LearningTrace {
   externalAiMode: LearningTraceExternalAiMode;
   externalAiCalls: number;
   paidAiCalls: number;
-  paidCostMicros: number;
+  /**
+     * Zero only when no paid request was recorded; null when provider billing is unknown.
+     * @nullable
+     */
+  paidCostMicros: number | null;
 }
 
 export interface CommandRun {

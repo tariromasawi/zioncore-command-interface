@@ -106,7 +106,7 @@ export const GetCommandFeedResponse = zod.object({
   "externalAiMode": zod.enum(['disabled', 'model', 'unknown']),
   "externalAiCalls": zod.number().int(),
   "paidAiCalls": zod.number().int(),
-  "paidCostMicros": zod.number().int()
+  "paidCostMicros": zod.number().int().nullable().describe('Zero only when no paid request was recorded; null when provider billing is unknown.')
 })
 })),
   "knowledge": zod.array(zod.object({
@@ -141,8 +141,9 @@ export const GetCommandFeedResponse = zod.object({
   "paidAiCallsAvoided": zod.number().int(),
   "latestMethodVersion": zod.string(),
   "billingPeriod": zod.string().regex(getCommandFeedResponseLearningBillingPeriodRegExp),
-  "monthlyPaidAiSpendMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiSpendMicrosMin).describe('Paid model spend settled in USD microdollars for the current Google Cloud billing month.'),
+  "monthlyPaidAiSpendMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiSpendMicrosMin).describe('Sum of settled usage-based estimates in USD microdollars; not a provider invoice or actual total.'),
   "monthlyPaidAiReservedMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiReservedMicrosMin).describe('Conservative reservations for paid requests with unknown outcomes'),
+  "monthlyPaidAiCostStatus": zod.enum(['none-recorded', 'unreconciled']).describe('Actual provider billing is unknown when paid requests or estimates are recorded.'),
   "monthlyPaidAiRequests": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiRequestsMin).describe('Paid model HTTP requests accepted by the monthly budget gate'),
   "monthlyPaidAiAllowanceMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiAllowanceMicrosMin).describe('Paid AI allowance configured for this application in USD microdollars; zero disables paid calls.')
 })
