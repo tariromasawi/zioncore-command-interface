@@ -55,6 +55,8 @@ jobs:
             zioncore-command:ci node dist/jobMain.mjs seed-check; then
             echo "Seed check accepted a mismatched checksum" >&2
             exit 1
+          else
+            echo "Mismatched Seed checksum was correctly rejected."
           fi
       - name: Check image entry points
         run: |
