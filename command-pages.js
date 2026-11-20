@@ -5,6 +5,7 @@
   const form = document.getElementById("command-suggestion-form");
   const approvedServiceUrl = "https://zioncore-command-public-web-pffsyl4lbq-nw.a.run.app/";
   let host = null;
+  let feedUrl = null;
   let feed = null;
 
   if (!status || !results) return;
@@ -411,8 +412,8 @@
     else showOverview();
   };
   const refresh = async () => {
-    if (!host) return;
-    const response = await fetch(new URL("/api/command/feed", host), {
+    if (!feedUrl) return;
+    const response = await fetch(feedUrl, {
       credentials: "omit",
       signal: AbortSignal.timeout(12000),
     });
@@ -429,6 +430,7 @@
     const config = await response.json();
     host = new URL(config.url || config.serviceUrl);
     if (host.href !== approvedServiceUrl) throw new Error("Unexpected production API origin");
+    feedUrl = new URL("/api/command/feed", host);
   };
 
   window.addEventListener("hashchange", render);
