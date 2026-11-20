@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { archiveExercise, benchmark, safeSuggestion, sha } from "../src/command/engines";
+import { archiveExercise, benchmark, safePublicResourceUrl, safeSuggestion, sha } from "../src/command/engines";
 import { getFeed, projectRun, runCycle } from "../src/command/cycle";
 import { askGenesis, configuredModels, loadSeed, publishedCandidate, type Model } from "../src/command/genesis";
 import { openStore } from "../src/command/store";
@@ -38,6 +38,10 @@ test("durable run lease, repeated trigger, feed allowlist and private inbox", as
     assert.equal(safeSuggestion(text),true);
     assert.equal(safeSuggestion("visit https://example.org for personal details"),false);
     assert.equal(safeSuggestion("mail private@example.org for personal details"),false);
+    assert.equal(safePublicResourceUrl("https://example.org/research"),true);
+    assert.equal(safePublicResourceUrl("http://example.org/research"),false);
+    assert.equal(safePublicResourceUrl("https://127.0.0.1/private"),false);
+    assert.equal(safePublicResourceUrl("https://user:pass@example.org/research"),false);
     const [a,b]=await Promise.all([first.claim("duplicate"),second.claim("duplicate")]);
     assert.equal([a,b].filter(Boolean).length,1);
     const run=await runCycle(first,"archive-exercise",new Date(),async()=>"Source checked (HTTP 200)");
@@ -97,7 +101,9 @@ test("private suggestions influence research only after anonymous category aggre
       "Compare continuity process two with an unpublished collection",
       "Compare continuity process three using separate backup records",
     ];
-    for(const text of privateTexts)await store.enqueue({programme:"continuity",text});
+    for(const [index,text] of privateTexts.entries())await store.enqueue({
+      programme:"continuity",text,resourceUrl:index===0?"https://example.org/private-review-reference":undefined,
+    });
     await store.enqueue({programme:"prosperity",text:"Test a single nonpublic prosperity idea"});
     const run=await runCycle(store,"preview",new Date(),async()=>"Source checked (HTTP 200)");
     assert.ok(run);
@@ -105,6 +111,7 @@ test("private suggestions influence research only after anonymous category aggre
     assert.equal(run.engines.find(engine=>engine.id==="beneficiary-routing")?.metric.includes("continuity selected"),true);
     const publicResult=JSON.stringify(await getFeed(store));
     for(const text of privateTexts)assert.equal(publicResult.includes(text),false);
+    assert.equal(publicResult.includes("https://example.org/private-review-reference"),false);
     assert.equal(publicResult.includes("at least three private suggestions"),true);
     assert.equal(publicResult.includes("single nonpublic prosperity idea"),false);
   } finally {await rm(dir,{recursive:true,force:true});}

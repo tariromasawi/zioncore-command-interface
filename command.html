@@ -12,6 +12,11 @@
     h2{color:#a5b4fc}a{color:#6ee7e1;text-decoration:underline;overflow-wrap:anywhere}a:focus-visible{outline:2px solid #6ee7e1;outline-offset:4px}
     article{border:1px solid #373258;padding:.65rem 1rem;margin:1rem 0}article h2,article p{margin:.25rem 0}
     .kicker{letter-spacing:.14em;color:#9de7df;font-size:.85rem;text-transform:uppercase}
+    label{display:block;margin-top:.8rem;font-size:.9rem;color:#c7c9e2}
+    input,select,textarea,button{font:inherit;color:inherit;background:#171630;border:1px solid #4a4770;border-radius:.4rem;padding:.7rem;width:100%}
+    button{background:#3730a3;cursor:pointer;margin-top:.8rem}
+    button:disabled{opacity:.5;cursor:wait}
+    .hint{font-size:.82rem;color:#a9abc2}
     [hidden]{display:none}
   </style>
   <script src="command-pages.js" defer></script>
@@ -24,6 +29,25 @@
     <p><a data-command-app hidden>Open the full Command dashboard</a> · <a href="./">Ceremonial landing page</a></p>
     <p id="command-status" role="status">Checking the public feed configuration…</p>
     <div id="command-results"></div>
+    <section class="panel" aria-labelledby="suggestion-title">
+      <h2 id="suggestion-title">Suggest a public research resource</h2>
+      <p class="hint">Submissions go to a private review queue. They are not published, executed, or fetched automatically. Do not include private links or credentials.</p>
+      <form id="command-suggestion-form">
+        <label for="suggestion-programme">Programme</label>
+        <select id="suggestion-programme" name="programme" required>
+          <option value="continuity">Continuity</option>
+          <option value="prosperity">Prosperity</option>
+          <option value="heritage">Heritage</option>
+          <option value="preparedness">Preparedness</option>
+        </select>
+        <label for="suggestion-text">Research question (20–1000 characters)</label>
+        <textarea id="suggestion-text" name="text" minlength="20" maxlength="1000" required rows="4"></textarea>
+        <label for="suggestion-resource">Public resource URL (optional, HTTPS)</label>
+        <input id="suggestion-resource" name="resourceUrl" type="url" maxlength="2048" placeholder="https://example.org/resource">
+        <button id="suggestion-submit" type="submit">Send for private review</button>
+        <p id="suggestion-status" class="hint" role="status" aria-live="polite"></p>
+      </form>
+    </section>
     <noscript>Enable JavaScript to read the public feed on this page.</noscript>
   </main>
 </body>

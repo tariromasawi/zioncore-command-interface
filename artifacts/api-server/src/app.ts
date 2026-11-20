@@ -34,6 +34,9 @@ app.use((_req,res,next)=>{
 app.use("/api/command/feed",cors({
   origin:["https://tariromasawi.github.io"],methods:["GET","HEAD"],
 }));
+app.use("/api/command/suggestions",cors({
+  origin:["https://tariromasawi.github.io"],methods:["POST"],allowedHeaders:["Content-Type"],
+}));
 app.use(express.json({limit:"8kb"}));
 
 app.use("/api", router);

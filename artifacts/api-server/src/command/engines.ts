@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -132,6 +133,17 @@ export function makeResearch(day: number, b: ReturnType<typeof benchmark>, a: Aw
 
 export const safeSuggestion = (text:string) =>
   !/https?:|www\.|@|(?:\+?\d[\s().-]*){7,}|-----BEGIN|(?:\b(?:exploit|malware|doxx|weaponize|phishing|synthesize pathogen)\b)/iu.test(text);
+
+export function safePublicResourceUrl(value:string) {
+  if(value.length>2048) return false;
+  try {
+    const url=new URL(value);
+    const hostname=url.hostname.toLowerCase();
+    return url.protocol==="https:" && !url.username && !url.password && !url.port &&
+      hostname.includes(".") && !isIP(hostname) &&
+      ![".localhost",".local",".internal",".test",".example",".invalid"].some(suffix=>hostname.endsWith(suffix));
+  } catch { return false; }
+}
 
 export function engineResults(input: {
   b:ReturnType<typeof benchmark>; a?:Awaited<ReturnType<typeof archiveExercise>>; opportunity:string;

@@ -14,4 +14,9 @@ export interface SuggestionInput {
      * @maxLength 1000
      */
   text: string;
+  /**
+     * Optional public HTTPS reference; stored privately and never fetched by the server.
+     * @maxLength 2048
+     */
+  resourceUrl?: string;
 }

@@ -98,7 +98,7 @@ The Seed never grants permissions. Workers execute pre-reviewed deterministic op
 
 ## Verify the actual release
 
-1. Use the service URL printed by Cloud Run, not a guessed host. Verify anonymous `/`, `/command.html`, `/research`, `/genesis`, `/continuity`, `/runs`, `/api/command/feed`, and all engine detail routes. No route starts or changes infrastructure. Verify public-feed CORS from `https://tariromasawi.github.io`; no cross-origin suggestion posting.
+1. Use the service URL printed by Cloud Run, not a guessed host. Verify anonymous `/`, `/command.html`, `/research`, `/genesis`, `/continuity`, `/runs`, `/api/command/feed`, and all engine detail routes. No route starts or changes infrastructure. Verify feed and suggestion CORS from exactly `https://tariromasawi.github.io`; confirm that suggestion text and resource URLs never appear in the public feed.
 2. Let the actual Cloud Scheduler trigger the first operational job. Check the Cloud Scheduler log and Cloud Run job execution, then correlate its time with the `scheduled-…` identifier and outcomes in the public run history. Wait for the daily review to verify its own `daily-…` slot.
 3. Run the synthetic exercise on an isolated non-production store or a separately authorized test execution, never by editing the operation schedule. Verify the mismatch and restoration hashes and repeat the invocation to check that it is skipped.
 4. Deploy the same code from another Cloud Run revision and compare the exact prior scheduled run ID and `finishedAt`. Do not claim production persistence or IAM verification until these checks pass using the actual runtime identities.

@@ -155,11 +155,14 @@ export const GetCommandFeedResponse = zod.object({
 export const submitCommandSuggestionBodyTextMin = 20;
 export const submitCommandSuggestionBodyTextMax = 1000;
 
+export const submitCommandSuggestionBodyResourceUrlMax = 2048;
+
 
 
 export const SubmitCommandSuggestionBody = zod.object({
   "programme": zod.enum(['continuity', 'prosperity', 'heritage', 'preparedness']),
-  "text": zod.string().min(submitCommandSuggestionBodyTextMin).max(submitCommandSuggestionBodyTextMax)
+  "text": zod.string().min(submitCommandSuggestionBodyTextMin).max(submitCommandSuggestionBodyTextMax),
+  "resourceUrl": zod.string().url().max(submitCommandSuggestionBodyResourceUrlMax).optional().describe('Optional public HTTPS reference; stored privately and never fetched by the server.')
 })
 
 export const SubmitCommandSuggestionResponse = zod.object({

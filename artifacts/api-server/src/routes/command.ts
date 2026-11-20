@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { GetCommandFeedResponse, SubmitCommandSuggestionBody } from "@workspace/api-zod";
 import { getFeed } from "../command/cycle";
-import { safeSuggestion } from "../command/engines";
+import { safePublicResourceUrl, safeSuggestion } from "../command/engines";
 import { openStore } from "../command/store";
 import { exportSnapshot } from "../command/knowledge";
 
@@ -40,13 +40,16 @@ router.post("/command/suggestions",async (req,res)=>{
   if (!req.is("application/json") || Buffer.byteLength(JSON.stringify(req.body ?? {}))>6_000) {
     res.status(400).json({error:"Send a short JSON suggestion."});return;
   }
-  if (req.get("sec-fetch-site")==="cross-site") {res.status(403).json({error:"Use the Command website to submit suggestions."});return;}
+  if (req.get("sec-fetch-site")==="cross-site" && req.get("origin")!=="https://tariromasawi.github.io") {
+    res.status(403).json({error:"Suggestions are accepted only from the public Command website."});return;
+  }
   const parsed=SubmitCommandSuggestionBody.strict().safeParse(req.body);
-  if (!parsed.success || parsed.data.text.trim().length<20 || !safeSuggestion(parsed.data.text)) {
-    res.status(400).json({error:"Choose a listed programme and share a public-safe research question without links, contacts or instructions to cause harm."});return;
+  if (!parsed.success || parsed.data.text.trim().length<20 || !safeSuggestion(parsed.data.text) ||
+      (parsed.data.resourceUrl!==undefined && !safePublicResourceUrl(parsed.data.resourceUrl))) {
+    res.status(400).json({error:"Choose a listed programme, a public-safe question, and an optional public HTTPS resource."});return;
   }
   try {
-    const id=await store.enqueue({programme:parsed.data.programme,text:parsed.data.text.trim()});
+    const id=await store.enqueue({programme:parsed.data.programme,text:parsed.data.text.trim(),resourceUrl:parsed.data.resourceUrl});
     res.status(202).json({id,status:"queued for private triage"});
   } catch (err) {
     if (err instanceof Error && err.message==="inbox-limit") {res.status(429).set("Retry-After","60").json({error:"The suggestion inbox is busy. Try again shortly."});return;}

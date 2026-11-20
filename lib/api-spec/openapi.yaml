@@ -70,6 +70,7 @@ components:
       properties:
         programme: { type: string, enum: [continuity, prosperity, heritage, preparedness] }
         text: { type: string, minLength: 20, maxLength: 1000 }
+        resourceUrl: { type: string, format: uri, maxLength: 2048, description: "Optional public HTTPS reference; stored privately and never fetched by the server." }
     SuggestionReceipt:
       type: object
       required: [id, status]

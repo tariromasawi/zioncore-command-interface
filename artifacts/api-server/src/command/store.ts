@@ -11,7 +11,7 @@ const projectId = "gen-lang-client-0266144152";
 const leaseMs = 4 * 60_000;
 type Lease = { id: string; token: string };
 type Slot = { token: string; until: number; attempts: number; status: string; run?: CommandRun };
-type Suggestion = { programme: string; text: string };
+type Suggestion = { programme: string; text: string; resourceUrl?:string };
 type Budget = { reserved: number; settled: number; tokens: number; requests?:number };
 export type SuggestionTriage={reviewed:number;programmeCounts:Record<string,number>};
 export type KnowledgeOutcome={entry:LearningEntry;outcome:"passed"|"failed"};
@@ -52,6 +52,8 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
     CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, day TEXT NOT NULL, amount INTEGER NOT NULL);`);
   db.exec("CREATE TABLE IF NOT EXISTS knowledge(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  const inboxColumns=db.prepare("PRAGMA table_info(inbox)").all() as {name:string}[];
+  if(!inboxColumns.some(column=>column.name==="resource_url")) db.exec("ALTER TABLE inbox ADD COLUMN resource_url TEXT");
   const tx = <T>(f: () => T): T => {
     db.exec("BEGIN IMMEDIATE");
     try { const r = f(); db.exec("COMMIT"); return r; }
@@ -127,7 +129,8 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
         const { total } = db.prepare("SELECT count(*) AS total FROM inbox WHERE submitted>?").get(now - 60_000)!;
         if (Number(total) >= 5) throw new Error("inbox-limit");
         const id = randomUUID();
-        db.prepare("INSERT INTO inbox VALUES(?,?,?,?,?)").run(id,input.programme,input.text,"queued",now);
+        db.prepare("INSERT INTO inbox(id,programme,text,status,submitted,resource_url) VALUES(?,?,?,?,?,?)")
+          .run(id,input.programme,input.text,"queued",now,input.resourceUrl??null);
         return id;
       });
     },
@@ -266,7 +269,7 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
         const count = old?.minute === minute ? Number(old.count) : 0;
         if (count >= 5) throw new Error("inbox-limit");
         tr.set(globalLimit,{ minute,count:count+1 });
-        tr.create(ref,{ ...input,status:"queued",submittedAt: new Date(),expiresAt: new Date(Date.now()+7*86_400_000) });
+        tr.create(ref,{ ...input,resourceUrl:input.resourceUrl??null,status:"queued",submittedAt: new Date(),expiresAt: new Date(Date.now()+7*86_400_000) });
       });
       return ref.id;
     },
