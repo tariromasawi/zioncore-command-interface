@@ -23,6 +23,7 @@ export * from './learningEntryEvaluation';
 export * from './learningEntryEvaluationOutcome';
 export * from './learningEntryStatus';
 export * from './learningMetrics';
+export * from './learningMetricsMonthlyPaidAiCostStatus';
 export * from './learningTrace';
 export * from './learningTraceExternalAiMode';
 export * from './learningTraceTracking';

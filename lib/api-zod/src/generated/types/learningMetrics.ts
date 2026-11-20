@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { LearningMetricsMonthlyPaidAiCostStatus } from './learningMetricsMonthlyPaidAiCostStatus';
 
 export interface LearningMetrics {
   internalMissionRuns: number;
@@ -16,7 +17,7 @@ export interface LearningMetrics {
   /** @pattern ^\d{4}-\d{2}$ */
   billingPeriod: string;
   /**
-     * Paid model spend settled in USD microdollars for the current Google Cloud billing month.
+     * Sum of settled usage-based estimates in USD microdollars; not a provider invoice or actual total.
      * @minimum 0
      */
   monthlyPaidAiSpendMicros: number;
@@ -25,6 +26,8 @@ export interface LearningMetrics {
      * @minimum 0
      */
   monthlyPaidAiReservedMicros: number;
+  /** Actual provider billing is unknown when paid requests or estimates are recorded. */
+  monthlyPaidAiCostStatus: LearningMetricsMonthlyPaidAiCostStatus;
   /**
      * Paid model HTTP requests accepted by the monthly budget gate
      * @minimum 0

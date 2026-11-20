@@ -1,6 +1,7 @@
 import { test } from "node:test";
+import "./dailyResearch.test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -273,4 +274,88 @@ test("Genesis loader rejects modifications and retains BOM, CRLF and trailing by
     await writeFile(path,text+" ");
     assert.equal(await loadSeed(env),null);
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test("suggestion CORS permits Pages POST preflight while keeping submissions private", async () => {
+  const scratch=join(process.cwd(),".local");
+  await mkdir(scratch,{recursive:true});
+  const dir=await mkdtemp(join(scratch,"command-http-test-"));
+  const previous={NODE_ENV:process.env.NODE_ENV,COMMAND_STORE:process.env.COMMAND_STORE,COMMAND_SQLITE_PATH:process.env.COMMAND_SQLITE_PATH};
+  process.env.NODE_ENV="development";
+  process.env.COMMAND_STORE="sqlite";
+  process.env.COMMAND_SQLITE_PATH=join(dir,"http.sqlite");
+  let server: import("node:http").Server | undefined;
+  try {
+    const app=(await import("../src/app")).default;
+    server=app.listen(0,"127.0.0.1");
+    await new Promise<void>((resolve,reject)=>{server!.once("listening",resolve);server!.once("error",reject);});
+    const address=server.address();
+    assert.ok(address && typeof address!=="string");
+    const base=`http://127.0.0.1:${address.port}/api/command`;
+    const origin="https://tariromasawi.github.io";
+    const path=`${base}/suggestions`;
+    const preflight=(requestOrigin:string,method="POST",headers="content-type")=>fetch(path,{
+      method:"OPTIONS",headers:{origin:requestOrigin,"access-control-request-method":method,"access-control-request-headers":headers},
+    });
+    const allowed=await preflight(origin);
+    assert.equal(allowed.status,204);
+    assert.equal(allowed.headers.get("access-control-allow-origin"),origin);
+    assert.equal(allowed.headers.get("access-control-allow-methods"),"POST");
+    assert.equal(allowed.headers.get("access-control-allow-headers"),"Content-Type");
+    assert.equal(allowed.headers.get("access-control-allow-credentials"),null);
+    assert.match(allowed.headers.get("vary")??"",/origin/i);
+    const wrongMethod=await preflight(origin,"DELETE");
+    assert.equal(wrongMethod.headers.get("access-control-allow-methods"),"POST");
+    const wrongHeader=await preflight(origin,"POST","content-type, x-custom");
+    assert.equal(wrongHeader.headers.get("access-control-allow-headers"),"Content-Type");
+    for (const other of ["https://example.org","https://tariromasawi.github.io.evil.example","null"]) {
+      const denied=await preflight(other);
+      assert.equal(denied.headers.get("access-control-allow-origin"),null);
+    }
+
+    const text="Compare continuity methods for an unpublished collection.";
+    const resourceUrl="https://example.org/private-reference";
+    const submit=(requestOrigin:string,body:unknown)=>fetch(path,{
+      method:"POST",headers:{origin:requestOrigin,"content-type":"application/json","sec-fetch-site":"cross-site"},
+      body:JSON.stringify(body),
+    });
+    const invalid=await submit(origin,{programme:"continuity",text:"short"});
+    assert.equal(invalid.status,400);
+    assert.equal(invalid.headers.get("access-control-allow-origin"),origin);
+    assert.equal(invalid.headers.get("cache-control"),"no-store");
+    const rejected=await submit("https://example.org",{programme:"continuity",text});
+    assert.equal(rejected.status,403);
+    assert.equal(rejected.headers.get("access-control-allow-origin"),null);
+    const accepted=await submit(origin,{programme:"continuity",text,resourceUrl});
+    assert.equal(accepted.status,202);
+    assert.equal(accepted.headers.get("access-control-allow-origin"),origin);
+    assert.equal(accepted.headers.get("cache-control"),"no-store");
+    const receipt=await accepted.text();
+    assert.equal(JSON.parse(receipt).status,"queued for private triage");
+    assert.equal(receipt.includes(text),false);
+    assert.equal(receipt.includes(resourceUrl),false);
+    const db=new DatabaseSync(process.env.COMMAND_SQLITE_PATH);
+    try {
+      const rows=db.prepare("SELECT text, resource_url FROM inbox").all();
+      assert.equal(rows.length,1);
+      assert.equal(rows[0]?.text,text);
+      assert.equal(rows[0]?.resource_url,resourceUrl);
+    } finally {db.close();}
+    const feed=await fetch(`${base}/feed`,{headers:{origin}});
+    assert.equal(feed.status,200);
+    assert.equal(feed.headers.get("access-control-allow-origin"),origin);
+    const publicFeed=await feed.text();
+    assert.equal(publicFeed.includes(text),false);
+    assert.equal(publicFeed.includes(resourceUrl),false);
+    const otherFeed=await fetch(`${base}/feed`,{headers:{origin:"https://example.org"}});
+    assert.equal(otherFeed.headers.get("access-control-allow-origin"),null);
+    const unrelated=await fetch(`${base}/knowledge/export`,{headers:{origin}});
+    assert.equal(unrelated.headers.get("access-control-allow-origin"),null);
+  } finally {
+    if(server) await new Promise<void>((resolve,reject)=>server!.close(error=>error?reject(error):resolve()));
+    for(const [key,value] of Object.entries(previous)) {
+      if(value===undefined) delete process.env[key]; else process.env[key]=value;
+    }
+    await rm(dir,{recursive:true,force:true});
+  }
 });

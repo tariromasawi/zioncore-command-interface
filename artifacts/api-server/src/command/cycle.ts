@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { CommandFeed, CommandRun } from "@workspace/api-zod";
-import { archiveExercise, benchmark, blankEngines, checkOpportunity, engineResults, makeResearch } from "./engines";
-import { askGenesis, configuredModels, genesisStatus, loadSeed } from "./genesis";
+import { archiveExercise, benchmark, blankEngines, checkOpportunity, engineResults, makeResearch, sha } from "./engines";
+import { configuredModels, genesisStatus } from "./genesis";
+import { compareInventory, researchDaily } from "./dailyResearch";
 import { continuityMethodId, continuityMethodVersion, evaluateContinuityMethod, evaluateEvolutionMethod, evolutionMethodId, evolutionMethodVersion, learnContinuity, learnEvolution } from "./knowledge";
 import type { CommandStore } from "./store";
 
 export const periodMs=15*60_000;
 export type CycleKind="preview"|"scheduled"|"daily-review"|"archive-exercise"|"internal-replay";
 
-export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(), opportunityCheck=checkOpportunity) {
+export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(), opportunityCheck=checkOpportunity,
+  gateway:{env?:NodeJS.ProcessEnv;request?:typeof fetch}={}) {
   const slot=kind==="archive-exercise" ? "archive-exercise-v1" : kind==="daily-review" ?
     `daily-${now.toISOString().slice(0,10)}` : kind==="internal-replay" ?
     `internal-replay-${randomUUID()}` : `${kind}-${new Date(Math.floor(+now/periodMs)*periodMs).toISOString().replace(/[:.]/g,"-")}`;
@@ -40,9 +42,19 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
     .then(value=>({outcome:"passed" as const,value}))
     .catch(()=>({outcome:"failed" as const,value:null}));
   const missionPassed=evaluation.outcome==="passed"&&evolutionResult.outcome==="passed";
-  // This recurring mission has a verified local method; external calls are
-  // therefore deliberately avoided even if provider keys happen to exist.
-  const ai={status:"blocked" as const,note:"External AI is disabled for this mission. A versioned local method is evaluated on fresh synthetic inputs.",externalAiCalls:0,paidAiCalls:0};
+  const env=gateway.env??process.env;
+  const daily=await researchDaily({kind,runId:slot,models:configuredModels(env),ledger:store,env,
+    request:store.production?undefined:gateway.request});
+  const ai={...daily,status:daily.record?"measured" as const:"blocked" as const};
+  const expectedSeedChecksum=env.COMMAND_GENESIS_SHA256;
+  const storedResearch=(kind==="internal-replay" || kind==="scheduled") && expectedSeedChecksum
+    && /^[a-f0-9]{64}$/.test(expectedSeedChecksum)
+    ? (await store.dailyResearch()).find(record=>record.seedChecksum===expectedSeedChecksum) : undefined;
+  const digest=sha(`synthetic inventory ${lease.id}`);
+  const replayPassed=storedResearch && compareInventory(storedResearch,
+    [{id:"first",digest},{id:"second",digest:"other"}],
+    [{id:"second",digest:"other"},{id:"first",digest}])
+    && !compareInventory(storedResearch,[{id:"first",digest}],[{id:"first",digest:"changed"}]);
   const methodEvidence=method.evidence;
   const retainedResearch={
     title:method.title,programme:method.programme,hypothesis:"A stored, checksum-verified preservation method will correctly check a fresh synthetic fixture.",
@@ -55,7 +67,7 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
   };
   const run:CommandRun={
     id:slot,kind,startedAt:now.toISOString(),finishedAt:new Date().toISOString(),
-    outcome:!a || !missionPassed || !b.rolledBack || !b.promoted || inbox.status==="rejected"?"partial":"completed",
+    outcome:!a || !missionPassed || !b.rolledBack || !b.promoted || inbox.status==="rejected" || (storedResearch&&!replayPassed)?"partial":"completed",
     learning:{
       tracking:"measured",
       mission:"archive-continuity-integrity",
@@ -64,10 +76,10 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
       knowledgeId:method.id,
       knowledgeReused:!!savedMethod&&!!savedEvolution,
       verification:missionPassed?"passed":"failed",
-      externalAiMode:"disabled",
-      externalAiCalls:0,
-      paidAiCalls:0,
-      paidCostMicros:0,
+      externalAiMode:daily.externalAiCalls?"model":"disabled",
+      externalAiCalls:daily.externalAiCalls,
+      paidAiCalls:daily.paidAiCalls,
+      paidCostMicros:daily.paidAiCalls || daily.unresolvedMicros ? null:0,
     },
     engines:engineResults({b,a,opportunity:signal,processed,suggestionDirection:popular,prior,kind,research,ai}),
     research:[retainedResearch,research,...(research.programme==="Prosperity"?[]:[makeResearch(3,b,a,signal)])],
@@ -82,7 +94,25 @@ export async function runCycle(store:CommandStore, kind:CycleKind, now=new Date(
       {title:"Separate estimates from receipts",why:"Price forecasts do not measure earnings.",action:"Use the pricing prototype to set a pilot quote and reconcile only authorized receipts when connected.",uncertainty:"Demand, margins and receipts are not verified."},
     ],
   };
-  await store.complete(lease,run,[{entry:method,outcome:evaluation.outcome},{entry:evolution,outcome:evolutionResult.outcome}]);
+  if(daily.unresolvedMicros || daily.paidAiCalls || daily.costMicros) {
+    run.engines.find(item=>item.id==="divine-ai-instances")?.evidence.push({
+      label:"Paid AI cost uncertainty",
+      detail:`Settled usage estimate: ${daily.costMicros} USD micros; unresolved reservations: ${daily.unresolvedMicros} USD micros. Reservations are not charges. Actual provider billing is unknown and requires reconciliation.`,
+    });
+  }
+  const record=daily.record??storedResearch;
+  if(record) run.research.push({
+    title:"AI-selected synthetic inventory comparison",programme:"Continuity",
+    hypothesis:"Matching stable identifiers handles reordered inventories and detects changed digests.",
+    method:"Use the validated match-by-id comparison; model output is not executable.",
+    result:daily.record
+      ? `Validated daily research record ${record.id}, version ${record.version}; initial synthetic checks passed.`
+      : `Reused daily research record ${record.id}, version ${record.version} on fresh synthetic inventories: ${replayPassed?"passed":"failed"}. No AI calls.`,
+    failedApproach:"Position-only comparisons can misidentify reordered items.",
+    next:"Repeat with authorized synthetic fixtures; this does not establish real archive integrity.",
+    evidence:[],
+  });
+  await store.complete(lease,run,[{entry:method,outcome:evaluation.outcome},{entry:evolution,outcome:evolutionResult.outcome}],daily.record);
   return run;
 }
 
@@ -117,7 +147,9 @@ export async function getFeed(store:CommandStore):Promise<CommandFeed> {
     state,
     cadence:store.production?"Configured: every 15 minutes; daily research review at 00:05 UTC.":"Preview runs only — production scheduling has not been verified.",
     nextExpected:store.production?new Date(Math.floor(Date.now()/periodMs)*periodMs+periodMs).toISOString():null,
-    genesis:await genesisStatus(),engines: daily ? engines.map(e=>e.id===daily.id?daily:e) : engines,runs,
+    genesis:await genesisStatus(),engines:(daily ? engines.map(e=>e.id===daily.id?daily:e) : engines).map(e=>
+      e.id==="divine-ai-instances"?{...e,evidence:[...e.evidence,{label:"Monthly paid AI cost",
+        detail:`Settled usage estimates: ${metrics.monthlyPaidAiSpendMicros} USD micros; unresolved reservations: ${metrics.monthlyPaidAiReservedMicros} USD micros. Reservations are not charges; provider billing is not reconciled.`}]}:e),runs,
     knowledge,
     learning:{
       internalMissionRuns:metrics.internalMissionRuns,
@@ -129,6 +161,7 @@ export async function getFeed(store:CommandStore):Promise<CommandFeed> {
       billingPeriod:metrics.billingPeriod,
       monthlyPaidAiSpendMicros:metrics.monthlyPaidAiSpendMicros,
       monthlyPaidAiReservedMicros:metrics.monthlyPaidAiReservedMicros,
+      monthlyPaidAiCostStatus:metrics.monthlyPaidAiRequests || metrics.monthlyPaidAiSpendMicros || metrics.monthlyPaidAiReservedMicros ? "unreconciled":"none-recorded",
       monthlyPaidAiRequests:metrics.monthlyPaidAiRequests,
       monthlyPaidAiAllowanceMicros:metrics.monthlyPaidAiAllowanceMicros,
     },

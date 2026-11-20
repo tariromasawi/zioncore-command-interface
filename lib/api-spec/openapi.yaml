@@ -134,7 +134,7 @@ components:
         evaluations: { type: array, items: { $ref: "#/components/schemas/LearningEntryEvaluation" } }
     LearningMetrics:
       type: object
-      required: [internalMissionRuns, externallyAssistedRuns, paidAiCalls, externalAiDisabledForMission, paidAiCallsAvoided, latestMethodVersion, billingPeriod, monthlyPaidAiSpendMicros, monthlyPaidAiReservedMicros, monthlyPaidAiRequests, monthlyPaidAiAllowanceMicros]
+      required: [internalMissionRuns, externallyAssistedRuns, paidAiCalls, externalAiDisabledForMission, paidAiCallsAvoided, latestMethodVersion, billingPeriod, monthlyPaidAiSpendMicros, monthlyPaidAiReservedMicros, monthlyPaidAiRequests, monthlyPaidAiAllowanceMicros, monthlyPaidAiCostStatus]
       properties:
         internalMissionRuns: { type: integer }
         externallyAssistedRuns: { type: integer }
@@ -143,8 +143,9 @@ components:
         paidAiCallsAvoided: { type: integer }
         latestMethodVersion: { type: string }
         billingPeriod: { type: string, pattern: "^\\d{4}-\\d{2}$" }
-        monthlyPaidAiSpendMicros: { type: integer, minimum: 0, description: Paid model spend settled in USD microdollars for the current Google Cloud billing month. }
+        monthlyPaidAiSpendMicros: { type: integer, minimum: 0, description: Sum of settled usage-based estimates in USD microdollars; not a provider invoice or actual total. }
         monthlyPaidAiReservedMicros: { type: integer, minimum: 0, description: Conservative reservations for paid requests with unknown outcomes, in USD microdollars. }
+        monthlyPaidAiCostStatus: { type: string, enum: [none-recorded, unreconciled], description: Actual provider billing is unknown when paid requests or estimates are recorded. }
         monthlyPaidAiRequests: { type: integer, minimum: 0, description: Paid model HTTP requests accepted by the monthly budget gate, including token-count and retry requests. }
         monthlyPaidAiAllowanceMicros: { type: integer, minimum: 0, description: Paid AI allowance configured for this application in USD microdollars; zero disables paid calls. }
     KnowledgeSnapshot:
@@ -191,7 +192,7 @@ components:
         externalAiMode: { type: string, enum: [disabled, model, unknown] }
         externalAiCalls: { type: integer }
         paidAiCalls: { type: integer }
-        paidCostMicros: { type: integer }
+        paidCostMicros: { type: integer, nullable: true, description: Zero only when no paid request was recorded; null when provider billing is unknown. }
     CommandRun:
       type: object
       required: [id, kind, startedAt, finishedAt, outcome, engines, research, warnings, advice, learning]
@@ -232,4 +233,3 @@ components:
           type: string
       required:
         - status
-

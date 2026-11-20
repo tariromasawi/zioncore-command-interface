@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { CommandRun, LearningEntry } from "@workspace/api-zod";
 import { currentKnowledge, sealEvaluation, verifySnapshot, type KnowledgeSnapshot } from "./knowledge";
 import { paidAiMonthlyCap } from "./genesis";
+import { validDailyRecord, type DailyResearchRecord } from "./dailyResearch";
 
 const projectId = "gen-lang-client-0266144152";
 const leaseMs = 4 * 60_000;
@@ -20,14 +21,15 @@ export interface CommandStore {
   readonly production: boolean;
   list(): Promise<CommandRun[]>;
   claim(id: string): Promise<Lease | null>;
-  complete(lease: Lease, run: CommandRun, knowledge: KnowledgeOutcome[]): Promise<void>;
+  complete(lease: Lease, run: CommandRun, knowledge: KnowledgeOutcome[], research?:DailyResearchRecord): Promise<void>;
+  dailyResearch(): Promise<DailyResearchRecord[]>;
   knowledge(): Promise<LearningEntry[]>;
   importKnowledge(snapshot: KnowledgeSnapshot): Promise<void>;
   allRunMetrics(): Promise<{internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number;
     billingPeriod:string;monthlyPaidAiSpendMicros:number;monthlyPaidAiReservedMicros:number;monthlyPaidAiRequests:number;monthlyPaidAiAllowanceMicros:number}>;
   enqueue(input: Suggestion): Promise<string>;
   review(): Promise<SuggestionTriage>;
-  reserve(id: string, amount: number, cap: number): Promise<boolean>;
+  reserve(id: string, amount: number, cap: number, scope?:string, scopeCap?:number): Promise<boolean>;
   settle(id: string, actual: number, tokens: number): Promise<void>;
 }
 
@@ -52,6 +54,10 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
     CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, day TEXT NOT NULL, amount INTEGER NOT NULL);`);
   db.exec("CREATE TABLE IF NOT EXISTS knowledge(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS daily_research(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  db.exec("CREATE TABLE IF NOT EXISTS execution_spend(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  const reservationColumns=db.prepare("PRAGMA table_info(reservations)").all() as {name:string}[];
+  if(!reservationColumns.some(column=>column.name==="scope")) db.exec("ALTER TABLE reservations ADD COLUMN scope TEXT");
   const inboxColumns=db.prepare("PRAGMA table_info(inbox)").all() as {name:string}[];
   if(!inboxColumns.some(column=>column.name==="resource_url")) db.exec("ALTER TABLE inbox ADD COLUMN resource_url TEXT");
   const tx = <T>(f: () => T): T => {
@@ -85,16 +91,28 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
         return { id, token: next.token };
       });
     },
-    async complete(lease, run, knowledge) {
+    async complete(lease, run, knowledge, research) {
       tx(() => {
         const old=get(lease.id);checkLease(old,lease);
+        if(run.id!==lease.id || (research && (!validDailyRecord(research) || research.sourceRunId!==lease.id || run.kind!=="daily-review")))
+          throw new Error("Invalid research or run identity");
         for(const {entry:learned,outcome} of knowledge) {
           const saved=db.prepare("SELECT value FROM knowledge WHERE id=?").get(learned.id);
           const entry=saved ? JSON.parse(String(saved.value)) as LearningEntry : learned;
           const updated=sealEvaluation(entry,{runId:run.id,outcome,recordedAt:run.finishedAt});
           db.prepare("INSERT INTO knowledge VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value").run(updated.id,JSON.stringify(updated));
         }
+        if(research) db.prepare("INSERT INTO daily_research VALUES(?,?)").run(research.id,JSON.stringify(research));
         set(lease.id,{...old,status:"complete",run});
+      });
+    },
+    async dailyResearch() {
+      // Inspect a bounded newest-first window; malformed records are skipped, never used.
+      return db.prepare("SELECT id,value FROM daily_research WHERE json_valid(value) ORDER BY json_extract(value,'$.sourceRunId') DESC,id DESC LIMIT 400").all().flatMap(row=>{
+        try {
+          const value:unknown=JSON.parse(String(row.value));
+          return validDailyRecord(value) && value.id===row.id?[value]:[];
+        } catch {return [];}
       });
     },
     async knowledge() {
@@ -145,13 +163,21 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
       for(const item of selected) programmeCounts[item.programme]=(programmeCounts[item.programme]??0)+1;
       return {reviewed:selected.length,programmeCounts};
     },
-    async reserve(id, amount, cap) {
+    async reserve(id, amount, cap, scope, scopeCap) {
       return tx(() => {
         if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
+        if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>50_000))return false;
         const day = billingMonth();
         const budget = getSpend(day);
         if (budget.reserved + budget.settled + amount > cap) return false;
-        db.prepare("INSERT INTO reservations VALUES(?,?,?)").run(id,day,amount);
+        if(scope) {
+          const row=db.prepare("SELECT value FROM execution_spend WHERE id=?").get(scope);
+          const execution:Budget=row?JSON.parse(String(row.value)):{reserved:0,settled:0,tokens:0};
+          if(execution.reserved+execution.settled+amount>scopeCap!)return false;
+          db.prepare("INSERT INTO execution_spend VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value")
+            .run(scope,JSON.stringify({...execution,reserved:execution.reserved+amount}));
+        }
+        db.prepare("INSERT INTO reservations(id,day,amount,scope) VALUES(?,?,?,?)").run(id,day,amount,scope??null);
         setSpend(day,{ ...budget,reserved: budget.reserved+amount,requests:(budget.requests??0)+1 });
         return true;
       });
@@ -159,12 +185,21 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
     async settle(id, amount, tokens) {
       if(!Number.isSafeInteger(amount)||amount<0||!Number.isSafeInteger(tokens)||tokens<0)throw new Error("Invalid paid usage settlement");
       tx(() => {
-        const row = db.prepare("SELECT day,amount FROM reservations WHERE id=?").get(id);
+        const row = db.prepare("SELECT day,amount,scope FROM reservations WHERE id=?").get(id);
         if (!row) return;
+        if(amount>Number(row.amount))throw new Error("Settlement exceeds reservation");
         const day = String(row.day);
         const budget = getSpend(day);
         setSpend(day,{ reserved: budget.reserved-Number(row.amount),settled: budget.settled+amount,
           tokens:budget.tokens+tokens,requests:budget.requests??0 });
+        if(row.scope) {
+          const scope=String(row.scope),saved=db.prepare("SELECT value FROM execution_spend WHERE id=?").get(scope);
+          if(!saved)throw new Error("Missing execution budget");
+          const execution=JSON.parse(String(saved.value)) as Budget;
+          db.prepare("UPDATE execution_spend SET value=? WHERE id=?").run(JSON.stringify({
+            ...execution,reserved:execution.reserved-Number(row.amount),settled:execution.settled+amount,tokens:execution.tokens+tokens,
+          }),scope);
+        }
         db.prepare("DELETE FROM reservations WHERE id=?").run(id);
       });
     },
@@ -173,11 +208,13 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
 
 function normalizeRun(value:unknown):CommandRun {
   const run=value as CommandRun;
-  if(run.learning)return run;
+  if(run.learning)return {...run,learning:{...run.learning,
+    paidCostMicros:run.learning.externalAiCalls || run.learning.paidAiCalls || run.learning.externalAiMode==="unknown"
+      ? null:run.learning.paidCostMicros}};
   return {...run,learning:{
     tracking:"legacy",mission:"historical-untracked",methodId:"untracked",methodVersion:"untracked",
     knowledgeId:null,knowledgeReused:false,verification:"not-run",externalAiMode:"unknown",
-    externalAiCalls:0,paidAiCalls:0,paidCostMicros:0,
+    externalAiCalls:0,paidAiCalls:0,paidCostMicros:null,
   }};
 }
 
@@ -190,7 +227,10 @@ function checkLease(slot: Slot | undefined, lease: Lease): asserts slot is Slot 
   if (!slot || slot.token !== lease.token || slot.until < Date.now() || slot.status !== "running") throw new Error("Lease lost");
 }
 
-const billingMonth = () => new Date(Date.now()-8*60*60_000).toISOString().slice(0,7);
+export function billingMonth(now=new Date()) {
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit"}).formatToParts(now);
+  return `${parts.find(part=>part.type==="year")!.value}-${parts.find(part=>part.type==="month")!.value}`;
+}
 
 function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
   const db = new Firestore({ projectId, databaseId:"zioncore-command" });
@@ -200,6 +240,7 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
   const inbox = inboxDb.collection("commandInbox");
   const spending = db.collection("commandSpending");
   const reservations = db.collection("commandReservations");
+  const executionSpending=db.collection("commandExecutionSpending");
   const globalLimit = inboxDb.doc("commandControl/intake");
   const learningStats=db.doc("commandMetadata/learningStats");
   return {
@@ -214,16 +255,19 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
         return { id, token:next.token };
       });
     },
-    async complete(lease, run, knowledge) {
+    async complete(lease, run, knowledge, research) {
       await db.runTransaction(async tr => {
         const ref = slots.doc(lease.id);
         const old = (await tr.get(ref)).data() as Slot | undefined;
         checkLease(old,lease);
+        if(run.id!==lease.id || (research && (!validDailyRecord(research) || research.sourceRunId!==lease.id || run.kind!=="daily-review")))
+          throw new Error("Invalid research or run identity");
         const stats=(await tr.get(learningStats)).data() as {internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}|undefined;
         const knowledgeRefs=knowledge.map(({entry})=>db.collection("commandKnowledge").doc(entry.id));
         const existing=await Promise.all(knowledgeRefs.map(ref=>tr.get(ref)));
         tr.update(ref,{ status:"complete" });
         tr.create(runs.doc(lease.id),run);
+        if(research) tr.create(db.collection("commandDailyResearch").doc(research.id),research);
         knowledge.forEach(({entry,outcome},index)=>{
           const saved=existing[index]?.data() as LearningEntry|undefined;
           const updated=sealEvaluation(saved??entry,{runId:run.id,outcome,recordedAt:run.finishedAt});
@@ -234,6 +278,13 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
           externallyAssistedRuns:(stats?.externallyAssistedRuns??0)+Number(run.learning.tracking==="measured"&&run.learning.externalAiCalls>0),
           paidAiCalls:(stats?.paidAiCalls??0)+(run.learning.tracking==="measured"?run.learning.paidAiCalls:0),
         });
+      });
+    },
+    async dailyResearch() {
+      const snapshot=await db.collection("commandDailyResearch").orderBy("sourceRunId","desc").limit(400).get();
+      return snapshot.docs.flatMap(doc=>{
+        const value:unknown=doc.data();
+        return validDailyRecord(value) && value.id===doc.id?[value]:[];
       });
     },
     async knowledge() {
@@ -286,14 +337,19 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
       if (!snapshot.empty) await batch.commit();
       return {reviewed:snapshot.size,programmeCounts};
     },
-    async reserve(id, amount, cap) {
+    async reserve(id, amount, cap, scope, scopeCap) {
       if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
+      if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>50_000))return false;
       const day = billingMonth(), ref = spending.doc(day);
       return db.runTransaction(async tr => {
         const budget = (await tr.get(ref)).data() as Budget | undefined ?? { reserved:0,settled:0,tokens:0 };
+        const executionRef=scope?executionSpending.doc(scope):undefined;
+        const execution=executionRef?(await tr.get(executionRef)).data() as Budget|undefined:undefined;
         if (budget.reserved+budget.settled+amount > cap) return false;
-        tr.create(reservations.doc(id),{ day,amount });
+        if(executionRef && (execution?.reserved??0)+(execution?.settled??0)+amount>scopeCap!)return false;
+        tr.create(reservations.doc(id),{ day,amount,...(scope?{scope}:{}) });
         tr.set(ref,{ ...budget,reserved:budget.reserved+amount,requests:(budget.requests??0)+1 });
+        if(executionRef)tr.set(executionRef,{reserved:(execution?.reserved??0)+amount,settled:execution?.settled??0,tokens:execution?.tokens??0});
         return true;
       });
     },
@@ -303,10 +359,16 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
         const reservation = reservations.doc(id);
         const saved = (await tr.get(reservation)).data();
         if (!saved) return;
+        if(amount>Number(saved.amount))throw new Error("Settlement exceeds reservation");
         const ref = spending.doc(String(saved.day));
         const budget = (await tr.get(ref)).data() as Budget;
+        const executionRef=saved.scope?executionSpending.doc(String(saved.scope)):undefined;
+        const execution=executionRef?(await tr.get(executionRef)).data() as Budget|undefined:undefined;
+        if(executionRef&&!execution)throw new Error("Missing execution budget");
         tr.set(ref,{ reserved:budget.reserved-Number(saved.amount),settled:budget.settled+amount,
           tokens:budget.tokens+tokens,requests:budget.requests??0 });
+        if(executionRef && execution)tr.set(executionRef,{...execution,reserved:execution.reserved-Number(saved.amount),
+          settled:execution.settled+amount,tokens:execution.tokens+tokens});
         tr.delete(reservation);
       });
     },

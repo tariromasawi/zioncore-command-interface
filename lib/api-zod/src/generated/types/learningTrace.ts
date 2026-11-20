@@ -21,5 +21,9 @@ export interface LearningTrace {
   externalAiMode: LearningTraceExternalAiMode;
   externalAiCalls: number;
   paidAiCalls: number;
-  paidCostMicros: number;
+  /**
+     * Zero only when no paid request was recorded; null when provider billing is unknown.
+     * @nullable
+     */
+  paidCostMicros: number | null;
 }

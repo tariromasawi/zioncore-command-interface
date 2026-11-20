@@ -76,11 +76,13 @@ function cost(input:number, output:number, model:Model) {
 }
 
 export async function askGenesis({
-  seed, models, ledger, cap, request=fetch, complex=false, env=process.env,
+  seed, models, ledger, cap, request, complex=false, env=process.env,
 }: {
   seed:Seed|null; models:Model[]; ledger:Pick<CommandStore,"reserve"|"settle">;
   cap?:number; request?:typeof fetch; complex?:boolean; env?:NodeJS.ProcessEnv;
 }):Promise<AiResult> {
+  if(process.env.NODE_ENV==="production" || env.NODE_ENV==="production" || !request || request===fetch)
+    return {status:"blocked",note:"Live AI research is blocked; provider billing and output limits are not verified.",externalAiCalls:0,paidAiCalls:0};
   if (!seed || sha(seed.text)!==seed.checksum || !env.COMMAND_GENESIS_PATH
     || env.COMMAND_GENESIS_SHA256!==seed.checksum || env.COMMAND_GENESIS_VERSION!==seed.version)
     return {status:"blocked",note:"Canonical Genesis bytes have not been approved and verified.",externalAiCalls:0,paidAiCalls:0};
