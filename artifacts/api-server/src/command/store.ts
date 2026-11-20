@@ -5,13 +5,14 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CommandRun, LearningEntry } from "@workspace/api-zod";
 import { currentKnowledge, sealEvaluation, verifySnapshot, type KnowledgeSnapshot } from "./knowledge";
+import { paidAiMonthlyCap } from "./genesis";
 
 const projectId = "gen-lang-client-0266144152";
 const leaseMs = 4 * 60_000;
 type Lease = { id: string; token: string };
 type Slot = { token: string; until: number; attempts: number; status: string; run?: CommandRun };
 type Suggestion = { programme: string; text: string };
-type Budget = { reserved: number; settled: number; tokens: number };
+type Budget = { reserved: number; settled: number; tokens: number; requests?:number };
 export type SuggestionTriage={reviewed:number;programmeCounts:Record<string,number>};
 export type KnowledgeOutcome={entry:LearningEntry;outcome:"passed"|"failed"};
 
@@ -22,7 +23,8 @@ export interface CommandStore {
   complete(lease: Lease, run: CommandRun, knowledge: KnowledgeOutcome[]): Promise<void>;
   knowledge(): Promise<LearningEntry[]>;
   importKnowledge(snapshot: KnowledgeSnapshot): Promise<void>;
-  allRunMetrics(): Promise<{internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}>;
+  allRunMetrics(): Promise<{internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number;
+    billingPeriod:string;monthlyPaidAiSpendMicros:number;monthlyPaidAiReservedMicros:number;monthlyPaidAiRequests:number;monthlyPaidAiAllowanceMicros:number}>;
   enqueue(input: Suggestion): Promise<string>;
   review(): Promise<SuggestionTriage>;
   reserve(id: string, amount: number, cap: number): Promise<boolean>;
@@ -33,15 +35,15 @@ export function openStore(env = process.env): CommandStore {
   if (env.COMMAND_STORE === "firestore") {
     if (env.GOOGLE_CLOUD_PROJECT !== projectId || env.FIRESTORE_DATABASE !== "zioncore-command" ||
         env.FIRESTORE_EMULATOR_HOST) throw new Error("Command requires the dedicated production Firestore database");
-    return firestoreStore();
+    return firestoreStore(paidAiMonthlyCap(env));
   }
   if (env.NODE_ENV === "production" || env.COMMAND_STORE && env.COMMAND_STORE !== "sqlite") {
     throw new Error("Production must explicitly select Firestore");
   }
-  return sqliteStore(resolve(env.COMMAND_SQLITE_PATH ?? resolve(import.meta.dirname, "../../../.local/command/preview.sqlite")));
+  return sqliteStore(resolve(env.COMMAND_SQLITE_PATH ?? resolve(import.meta.dirname, "../../../.local/command/preview.sqlite")),paidAiMonthlyCap(env));
 }
 
-function sqliteStore(path: string): CommandStore {
+function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): CommandStore {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;
@@ -111,9 +113,12 @@ function sqliteStore(path: string): CommandStore {
     async allRunMetrics() {
       const rows=db.prepare("SELECT value FROM slots WHERE json_extract(value,'$.status')='complete'").all();
       const runs=rows.map(row=>normalizeRun((JSON.parse(String(row.value)) as Slot).run!)).filter(run=>run.learning.tracking==="measured");
-      return {internalMissionRuns:runs.filter(r=>r.learning.knowledgeReused&&r.learning.verification==="passed"&&r.learning.externalAiCalls===0&&r.learning.paidAiCalls===0).length,
+      const period=billingMonth(),spend=getSpend(period);
+      return {internalMissionRuns:runs.filter(r=>r.outcome==="completed"&&r.learning.knowledgeReused&&r.learning.verification==="passed"&&r.learning.externalAiCalls===0&&r.learning.paidAiCalls===0).length,
         externallyAssistedRuns:runs.filter(r=>r.learning.externalAiCalls>0).length,
-        paidAiCalls:runs.reduce((n,r)=>n+r.learning.paidAiCalls,0)};
+        paidAiCalls:runs.reduce((n,r)=>n+r.learning.paidAiCalls,0),billingPeriod:period,
+        monthlyPaidAiSpendMicros:spend.settled,monthlyPaidAiReservedMicros:spend.reserved,
+        monthlyPaidAiRequests:spend.requests??0,monthlyPaidAiAllowanceMicros};
     },
     async enqueue(input) {
       return tx(() => {
@@ -139,21 +144,24 @@ function sqliteStore(path: string): CommandStore {
     },
     async reserve(id, amount, cap) {
       return tx(() => {
-        const day = month();
+        if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
+        const day = billingMonth();
         const budget = getSpend(day);
         if (budget.reserved + budget.settled + amount > cap) return false;
         db.prepare("INSERT INTO reservations VALUES(?,?,?)").run(id,day,amount);
-        setSpend(day,{ ...budget,reserved: budget.reserved+amount });
+        setSpend(day,{ ...budget,reserved: budget.reserved+amount,requests:(budget.requests??0)+1 });
         return true;
       });
     },
     async settle(id, amount, tokens) {
+      if(!Number.isSafeInteger(amount)||amount<0||!Number.isSafeInteger(tokens)||tokens<0)throw new Error("Invalid paid usage settlement");
       tx(() => {
         const row = db.prepare("SELECT day,amount FROM reservations WHERE id=?").get(id);
         if (!row) return;
         const day = String(row.day);
         const budget = getSpend(day);
-        setSpend(day,{ reserved: budget.reserved-Number(row.amount),settled: budget.settled+amount,tokens:budget.tokens+tokens });
+        setSpend(day,{ reserved: budget.reserved-Number(row.amount),settled: budget.settled+amount,
+          tokens:budget.tokens+tokens,requests:budget.requests??0 });
         db.prepare("DELETE FROM reservations WHERE id=?").run(id);
       });
     },
@@ -179,9 +187,9 @@ function checkLease(slot: Slot | undefined, lease: Lease): asserts slot is Slot 
   if (!slot || slot.token !== lease.token || slot.until < Date.now() || slot.status !== "running") throw new Error("Lease lost");
 }
 
-const month = () => new Date().toISOString().slice(0,7);
+const billingMonth = () => new Date(Date.now()-8*60*60_000).toISOString().slice(0,7);
 
-function firestoreStore(): CommandStore {
+function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
   const db = new Firestore({ projectId, databaseId:"zioncore-command" });
   const inboxDb = new Firestore({ projectId, databaseId:"zioncore-command-inbox" });
   const slots = db.collection("commandSlots");
@@ -219,7 +227,7 @@ function firestoreStore(): CommandStore {
           tr.set(knowledgeRefs[index]!,updated);
         });
         tr.set(learningStats,{
-          internalMissionRuns:(stats?.internalMissionRuns??0)+Number(run.learning.tracking==="measured"&&run.learning.knowledgeReused&&run.learning.verification==="passed"&&run.learning.externalAiCalls===0&&run.learning.paidAiCalls===0),
+          internalMissionRuns:(stats?.internalMissionRuns??0)+Number(run.outcome==="completed"&&run.learning.tracking==="measured"&&run.learning.knowledgeReused&&run.learning.verification==="passed"&&run.learning.externalAiCalls===0&&run.learning.paidAiCalls===0),
           externallyAssistedRuns:(stats?.externallyAssistedRuns??0)+Number(run.learning.tracking==="measured"&&run.learning.externalAiCalls>0),
           paidAiCalls:(stats?.paidAiCalls??0)+(run.learning.tracking==="measured"?run.learning.paidAiCalls:0),
         });
@@ -243,8 +251,11 @@ function firestoreStore(): CommandStore {
     },
     async allRunMetrics() {
       const stats=(await learningStats.get()).data() as {internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}|undefined;
+      const period=billingMonth(),budget=(await spending.doc(period).get()).data() as Budget|undefined;
       return {internalMissionRuns:stats?.internalMissionRuns??0,
-        externallyAssistedRuns:stats?.externallyAssistedRuns??0,paidAiCalls:stats?.paidAiCalls??0};
+        externallyAssistedRuns:stats?.externallyAssistedRuns??0,paidAiCalls:stats?.paidAiCalls??0,
+        billingPeriod:period,monthlyPaidAiSpendMicros:budget?.settled??0,monthlyPaidAiReservedMicros:budget?.reserved??0,
+        monthlyPaidAiRequests:budget?.requests??0,monthlyPaidAiAllowanceMicros};
     },
     async enqueue(input) {
       if (process.env.COMMAND_ENABLE_INTAKE !== "1") throw new Error("intake-disabled");
@@ -273,23 +284,26 @@ function firestoreStore(): CommandStore {
       return {reviewed:snapshot.size,programmeCounts};
     },
     async reserve(id, amount, cap) {
-      const day = month(), ref = spending.doc(day);
+      if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
+      const day = billingMonth(), ref = spending.doc(day);
       return db.runTransaction(async tr => {
         const budget = (await tr.get(ref)).data() as Budget | undefined ?? { reserved:0,settled:0,tokens:0 };
         if (budget.reserved+budget.settled+amount > cap) return false;
         tr.create(reservations.doc(id),{ day,amount });
-        tr.set(ref,{ ...budget,reserved:budget.reserved+amount });
+        tr.set(ref,{ ...budget,reserved:budget.reserved+amount,requests:(budget.requests??0)+1 });
         return true;
       });
     },
     async settle(id, amount, tokens) {
+      if(!Number.isSafeInteger(amount)||amount<0||!Number.isSafeInteger(tokens)||tokens<0)throw new Error("Invalid paid usage settlement");
       await db.runTransaction(async tr => {
         const reservation = reservations.doc(id);
         const saved = (await tr.get(reservation)).data();
         if (!saved) return;
         const ref = spending.doc(String(saved.day));
         const budget = (await tr.get(ref)).data() as Budget;
-        tr.set(ref,{ reserved:budget.reserved-Number(saved.amount),settled:budget.settled+amount,tokens:budget.tokens+tokens });
+        tr.set(ref,{ reserved:budget.reserved-Number(saved.amount),settled:budget.settled+amount,
+          tokens:budget.tokens+tokens,requests:budget.requests??0 });
         tr.delete(reservation);
       });
     },

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { archiveExercise, benchmark, safeSuggestion, sha } from "../src/command/engines";
 import { getFeed, projectRun, runCycle } from "../src/command/cycle";
-import { askGenesis, loadSeed, publishedCandidate, type Model } from "../src/command/genesis";
+import { askGenesis, configuredModels, loadSeed, publishedCandidate, type Model } from "../src/command/genesis";
 import { openStore } from "../src/command/store";
 import { evaluateEvolutionMethod, exportSnapshot, learnContinuity, learnEvolution, verifyMethod, verifySnapshot } from "../src/command/knowledge";
 
@@ -114,25 +114,33 @@ test("versioned knowledge exports, verifies, and restores into a clean store",as
   const dir=await mkdtemp(join(tmpdir(),"command-export-"));
   try {
     const source=openStore({COMMAND_SQLITE_PATH:join(dir,"source.sqlite"),COMMAND_STORE:"sqlite"});
-    const generated=learnContinuity("source-run",new Date("2026-01-01T00:00:00.000Z"));
+    const sourceTime=new Date();
+    const generated=learnContinuity("source-run",sourceTime);
+    const evolved=learnEvolution("source-run",sourceTime);
     assert.equal(verifyMethod(generated),true);
+    assert.equal(verifyMethod(evolved),true);
     const lease=await source.claim("source-run");
     assert.ok(lease);
     const run={
-      id:"source-run",kind:"preview",startedAt:"2026-01-01T00:00:00.000Z",finishedAt:"2026-01-01T00:00:01.000Z",outcome:"completed",
+      id:"source-run",kind:"preview",startedAt:sourceTime.toISOString(),finishedAt:new Date(+sourceTime+1).toISOString(),outcome:"completed",
       learning:{tracking:"measured" as const,mission:"archive-continuity-integrity",methodId:generated.methodId,methodVersion:generated.version,knowledgeId:generated.id,
         knowledgeReused:false,verification:"passed" as const,externalAiMode:"disabled" as const,externalAiCalls:0,paidAiCalls:0,paidCostMicros:0},
       engines:[],research:[],warnings:[],advice:[],
     };
-    await source.complete(lease,run,[{entry:generated,outcome:"passed"}]);
-    const snapshot=exportSnapshot(await source.knowledge(),new Date("2026-01-02T00:00:00.000Z"));
+    await source.complete(lease,run,[{entry:generated,outcome:"passed"},{entry:evolved,outcome:"passed"}]);
+    const snapshot=exportSnapshot(await source.knowledge(),new Date(+sourceTime+2));
+    assert.equal(snapshot.entryCount,2);
     assert.equal(verifySnapshot(JSON.parse(JSON.stringify(snapshot))).checksum,snapshot.checksum);
     const clean=openStore({COMMAND_SQLITE_PATH:join(dir,"restored.sqlite"),COMMAND_STORE:"sqlite"});
     assert.equal((await clean.knowledge()).length,0);
     await clean.importKnowledge(snapshot);
     assert.deepEqual(await clean.knowledge(),await source.knowledge());
     await clean.importKnowledge(snapshot);
-    assert.equal((await clean.knowledge()).length,1);
+    assert.equal((await clean.knowledge()).length,2);
+    const replay=await runCycle(clean,"internal-replay",new Date(),async()=>"Source checked (HTTP 200)");
+    assert.equal(replay?.learning.knowledgeReused,true);
+    assert.equal(replay?.learning.verification,"passed");
+    assert.equal((await getFeed(clean)).learning.internalMissionRuns,1);
     const tampered=JSON.parse(JSON.stringify(snapshot));
     tampered.entries[0].method+=" Modified";
     assert.throws(()=>verifySnapshot(tampered),/unsupported or modified method/);
@@ -170,6 +178,8 @@ test("wire payload retains exact synthetic Seed in token count, free, paid, retr
   const seed={text,version:"fixture",checksum:sha(text)};
   const free:Model={name:"gemini-free-fixture",tier:"free",key:"fixture-free",context:800_000,inputMicrosPerMillion:0,outputMicrosPerMillion:0};
   const paid:Model={...free,name:"gemini-paid-fixture",tier:"paid",key:"fixture-paid",inputMicrosPerMillion:1_000_000,outputMicrosPerMillion:1_000_000};
+  const env={COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"1000000",
+    COMMAND_GENESIS_PATH:"approved/seed.txt",COMMAND_GENESIS_SHA256:seed.checksum,COMMAND_GENESIS_VERSION:seed.version};
   const ledgerEvents:string[]=[], wire:string[]=[];
   const ledger={
     async reserve(_id:string,amount:number,cap:number) { assert.ok(amount<=cap);ledgerEvents.push("reserve"); return true; },
@@ -189,21 +199,61 @@ test("wire payload retains exact synthetic Seed in token count, free, paid, retr
     if (!isPaid || wire.filter(v=>v==="paid:call").length===1) return Response.json({}, {status:503});
     return Response.json({candidates:[{content:{parts:[{text:"fixture only"}]}}],usageMetadata:{promptTokenCount:140000,candidatesTokenCount:4}});
   };
-  const result=await askGenesis({seed,models:[free,paid],ledger,cap:1_000_000,request});
+  const result=await askGenesis({seed,models:[free,paid],ledger,cap:1_000_000,request,env});
   assert.equal(result.status,"measured");
   assert.deepEqual(wire,["free:count","free:call","free:call","paid:count","paid:call","paid:call"]);
-  assert.deepEqual(ledgerEvents,["reserve","reserve","settle"]);
+  assert.deepEqual(ledgerEvents,["reserve","settle","reserve","reserve","settle"]);
   assert.equal(result.checksum,seed.checksum);
   assert.equal(result.externalAiCalls,6);
   assert.equal(result.paidAiCalls,2);
   assert.equal(result.costMicros,140_004);
-  assert.equal((await askGenesis({seed:null,models:[free],ledger,cap:0,request})).status,"blocked");
+  assert.equal((await askGenesis({seed:null,models:[free],ledger,cap:0,request,env})).status,"blocked");
   wire.length=0;
-  assert.equal((await askGenesis({seed,models:[{...free,context:100}],ledger,cap:0,request})).status,"blocked");
+  assert.equal((await askGenesis({seed,models:[{...free,context:100}],ledger,cap:0,request,env})).status,"blocked");
   assert.deepEqual(wire,["free:count"]);
   wire.length=0;
-  assert.equal((await askGenesis({seed,models:[paid],ledger,cap:0,request})).status,"blocked");
+  assert.equal((await askGenesis({seed,models:[paid],ledger,cap:0,request,env})).status,"blocked");
   assert.deepEqual(wire,[]);
+});
+
+test("paid AI requires approved Seed configuration, explicit opt-in and a bounded monthly allowance",()=>{
+  const base={COMMAND_PAID_PROVIDER_KEY:"fixture-key",COMMAND_PAID_MODEL_NAME:"gemini-fixture",COMMAND_PAID_MODEL_CONTEXT:"1000",
+    COMMAND_PAID_MODEL_INPUT_MICROS_PER_MILLION:"1000000",COMMAND_PAID_MODEL_OUTPUT_MICROS_PER_MILLION:"1000000",
+    COMMAND_PAID_MODEL_BILLABLE_OUTPUT_LIMIT:"256",COMMAND_GENESIS_PATH:"approved/seed.txt",
+    COMMAND_GENESIS_SHA256:"a".repeat(64),COMMAND_GENESIS_VERSION:"owner-approved"};
+  assert.equal(configuredModels(base).some(model=>model.tier==="paid"),false);
+  assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1"}).some(model=>model.tier==="paid"),false);
+  assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"0"}).some(model=>model.tier==="paid"),false);
+  assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"1000"}).some(model=>model.tier==="paid"),true);
+  assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"not-a-number"}).some(model=>model.tier==="paid"),false);
+});
+
+test("paid AI monthly reservations gate token counts and concurrent generations",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"command-paid-budget-"));
+  try {
+    const path=join(dir,"paid.sqlite"),text="approved complete seed";
+    const seed={text,version:"owner-approved",checksum:sha(text)};
+    const env={COMMAND_STORE:"sqlite",COMMAND_SQLITE_PATH:path,COMMAND_ENABLE_PAID_AI:"1",
+      COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"700",COMMAND_GENESIS_PATH:"approved/seed.txt",
+      COMMAND_GENESIS_SHA256:seed.checksum,COMMAND_GENESIS_VERSION:seed.version};
+    const stores=[openStore(env),openStore(env)],model:Model={name:"gemini-paid-fixture",tier:"paid",key:"fixture",
+      context:4000,inputMicrosPerMillion:1_000_000,outputMicrosPerMillion:1_000_000,billableOutputLimit:256};
+    let tokenRequests=0,generationRequests=0;
+    const request:typeof fetch=async url=>{
+      if(String(url).endsWith(":countTokens")){tokenRequests++;return Response.json({totalTokens:100});}
+      generationRequests++;
+      await new Promise(resolve=>setTimeout(resolve,5));
+      return Response.json({candidates:[{content:{parts:[{text:"bounded fixture result"}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:256}});
+    };
+    const outcomes=await Promise.all(stores.map(store=>askGenesis({seed,models:[model],ledger:store,request,env})));
+    assert.equal(tokenRequests>=1,true);
+    assert.equal(generationRequests,1);
+    assert.equal(outcomes.filter(result=>result.status==="measured").length,1);
+    const metrics=await openStore(env).allRunMetrics();
+    assert.equal(metrics.monthlyPaidAiSpendMicros,356);
+    assert.equal(metrics.monthlyPaidAiAllowanceMicros,700);
+    assert.equal(metrics.monthlyPaidAiRequests,tokenRequests+generationRequests);
+  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
 test("Genesis loader rejects modifications and retains BOM, CRLF and trailing bytes", async ()=>{

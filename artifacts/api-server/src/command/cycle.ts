@@ -126,6 +126,11 @@ export async function getFeed(store:CommandStore):Promise<CommandFeed> {
       externalAiDisabledForMission:true,
       paidAiCallsAvoided:metrics.internalMissionRuns,
       latestMethodVersion:latestMethod?.version??"not yet verified",
+      billingPeriod:metrics.billingPeriod,
+      monthlyPaidAiSpendMicros:metrics.monthlyPaidAiSpendMicros,
+      monthlyPaidAiReservedMicros:metrics.monthlyPaidAiReservedMicros,
+      monthlyPaidAiRequests:metrics.monthlyPaidAiRequests,
+      monthlyPaidAiAllowanceMicros:metrics.monthlyPaidAiAllowanceMicros,
     },
   };
 }

@@ -13,6 +13,15 @@ import * as zod from 'zod';
  */
 export const getCommandFeedResponseKnowledgeItemIdRegExp = new RegExp('^[a-f0-9]{64}$');
 export const getCommandFeedResponseKnowledgeItemMethodChecksumRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getCommandFeedResponseLearningBillingPeriodRegExp = new RegExp('^\\d{4}-\\d{2}$');
+export const getCommandFeedResponseLearningMonthlyPaidAiSpendMicrosMin = 0;
+
+export const getCommandFeedResponseLearningMonthlyPaidAiReservedMicrosMin = 0;
+
+export const getCommandFeedResponseLearningMonthlyPaidAiRequestsMin = 0;
+
+export const getCommandFeedResponseLearningMonthlyPaidAiAllowanceMicrosMin = 0;
+
 
 
 export const GetCommandFeedResponse = zod.object({
@@ -130,7 +139,12 @@ export const GetCommandFeedResponse = zod.object({
   "paidAiCalls": zod.number().int(),
   "externalAiDisabledForMission": zod.boolean(),
   "paidAiCallsAvoided": zod.number().int(),
-  "latestMethodVersion": zod.string()
+  "latestMethodVersion": zod.string(),
+  "billingPeriod": zod.string().regex(getCommandFeedResponseLearningBillingPeriodRegExp),
+  "monthlyPaidAiSpendMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiSpendMicrosMin).describe('Paid model spend settled in USD microdollars for the current Google Cloud billing month.'),
+  "monthlyPaidAiReservedMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiReservedMicrosMin).describe('Conservative reservations for paid requests with unknown outcomes'),
+  "monthlyPaidAiRequests": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiRequestsMin).describe('Paid model HTTP requests accepted by the monthly budget gate'),
+  "monthlyPaidAiAllowanceMicros": zod.number().int().min(getCommandFeedResponseLearningMonthlyPaidAiAllowanceMicrosMin).describe('Paid AI allowance configured for this application in USD microdollars; zero disables paid calls.')
 })
 })
 

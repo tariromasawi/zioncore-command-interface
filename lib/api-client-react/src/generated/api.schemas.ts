@@ -114,6 +114,28 @@ export interface LearningMetrics {
   externalAiDisabledForMission: boolean;
   paidAiCallsAvoided: number;
   latestMethodVersion: string;
+  /** @pattern ^\d{4}-\d{2}$ */
+  billingPeriod: string;
+  /**
+     * Paid model spend settled in USD microdollars for the current Google Cloud billing month.
+     * @minimum 0
+     */
+  monthlyPaidAiSpendMicros: number;
+  /**
+     * Conservative reservations for paid requests with unknown outcomes
+     * @minimum 0
+     */
+  monthlyPaidAiReservedMicros: number;
+  /**
+     * Paid model HTTP requests accepted by the monthly budget gate
+     * @minimum 0
+     */
+  monthlyPaidAiRequests: number;
+  /**
+     * Paid AI allowance configured for this application in USD microdollars; zero disables paid calls.
+     * @minimum 0
+     */
+  monthlyPaidAiAllowanceMicros: number;
 }
 
 export type KnowledgeSnapshotFormat = typeof KnowledgeSnapshotFormat[keyof typeof KnowledgeSnapshotFormat];

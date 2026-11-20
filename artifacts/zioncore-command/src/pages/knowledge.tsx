@@ -3,6 +3,8 @@ import { Link } from "wouter";
 import { useFeed, fmt } from "@/hooks/use-feed";
 import { Empty, Failure, PageHead, Skeleton, StatusChip } from "@/components/bits";
 
+const usd=(micros:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(micros/1_000_000);
+
 export default function KnowledgePage() {
   const query=useFeed();
   if(query.isLoading)return <Skeleton rows={8}/>;
@@ -22,10 +24,16 @@ export default function KnowledgePage() {
     </div>
     <div className="mb-5 grid grid-cols-2 md:grid-cols-3 gap-px border border-border bg-border">
       {[
-        ["Internal replays",String(learning.internalMissionRuns)],
+        ["Internally completed missions",String(learning.internalMissionRuns)],
         ["External research runs",String(learning.externallyAssistedRuns)],
-        ["Paid AI calls",String(learning.paidAiCalls)],
+        ["Paid AI calls · recorded",String(learning.paidAiCalls)],
         ["Paid calls avoided",String(learning.paidAiCallsAvoided)],
+        ["Versioned methods",String(knowledge.length)],
+        ["Paid AI spend · month to date",usd(learning.monthlyPaidAiSpendMicros)],
+        ["Uncertain spend held",usd(learning.monthlyPaidAiReservedMicros)],
+        ["Paid AI requests · month to date",String(learning.monthlyPaidAiRequests)],
+        ["Paid AI allowance",learning.monthlyPaidAiAllowanceMicros>0?usd(learning.monthlyPaidAiAllowanceMicros):"Disabled"],
+        ["Billing month",learning.billingPeriod],
         ["Method version",learning.latestMethodVersion],
         ["Mission AI mode",learning.externalAiDisabledForMission?"Disabled":"Enabled"],
       ].map(([label,value])=><div key={label} className="bg-card p-3 min-w-0">
@@ -33,6 +41,10 @@ export default function KnowledgePage() {
         <div className="mt-1 break-words font-display text-lg">{value}</div>
       </div>)}
     </div>
+    <p className="mb-5 border border-border p-3 text-xs text-muted-foreground">
+      AI amounts are measured in USD microdollars and include conservative reservations for requests with unknown outcomes. Cloud Run, Firestore, Scheduler and storage charges are not connected to this feed; check the project billing report for total spend.
+      {" "}<a className="text-primary underline" href="https://console.cloud.google.com/billing?project=gen-lang-client-0266144152" target="_blank" rel="noreferrer">Open project billing</a>
+    </p>
     <section className="space-y-3" aria-labelledby="knowledge-entries">
       <h2 id="knowledge-entries" className="font-display font-semibold">Versioned methods</h2>
       {!knowledge.length?<Empty title="No verified knowledge yet" body="The first successful research cycle records its reproducible method and evidence here."/>:
