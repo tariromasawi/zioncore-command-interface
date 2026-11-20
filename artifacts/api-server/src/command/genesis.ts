@@ -105,7 +105,7 @@ export async function askGenesis({
     const countReservationId=model.tier==="paid"?randomUUID():null;
     // countTokens is also gated: reserve against a conservative input bound
     // before sending the paid request, then release only after a known reply.
-    const inputCeiling=Math.min(model.context,seed.text.length*2+task.length+32);
+    const inputCeiling=Math.min(model.context,Buffer.byteLength(seed.text,"utf8")+Buffer.byteLength(task,"utf8")+64);
     const countReserve=cost(inputCeiling,model.billableOutputLimit ?? maxOutput,model);
     if(model.tier==="paid"&&(!validInt(countReserve)||countReserve>requestCap)) {
       failures.add("paid budget exhausted");
