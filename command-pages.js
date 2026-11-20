@@ -3,6 +3,7 @@
   const status = document.getElementById("command-status");
   const results = document.getElementById("command-results");
   const form = document.getElementById("command-suggestion-form");
+  const approvedServiceUrl = "https://zioncore-command-public-web-pffsyl4lbq-nw.a.run.app/";
   const append = (parent, tag, value, className = "") => {
     const node = document.createElement(tag);
     node.textContent = value == null ? "" : String(value);
@@ -120,14 +121,18 @@
     if (!config.ok) throw new Error("Configuration unavailable");
     const {url} = await config.json();
     const host = new URL(url);
-    if (host.protocol !== "https:" || !host.hostname.endsWith(".run.app") || host.username || host.password || host.port || host.pathname !== "/" || host.search || host.hash) throw new Error("Invalid service URL");
+    if (host.href !== approvedServiceUrl) throw new Error("Invalid service URL");
     for (const link of document.querySelectorAll("[data-command-app]")) {
       link.href = host.href;
       link.hidden = false;
     }
-    const response = await fetch(new URL("/api/command/feed",host),{credentials:"omit",signal:AbortSignal.timeout(8000)});
-    if (!response.ok) throw new Error("Feed unavailable");
-    showFeed(await response.json(),host);
+    const feedUrl = new URL("/api/command/feed",host);
+    const refresh = async () => {
+      const response = await fetch(feedUrl,{credentials:"omit",signal:AbortSignal.timeout(8000)});
+      if (!response.ok) throw new Error("Feed unavailable");
+      showFeed(await response.json(),host);
+    };
+    await refresh();
 
     if (form) {
       form.addEventListener("submit", async event => {
@@ -158,6 +163,11 @@
         }
       }, {once:true});
     }
+    window.setInterval(() => {
+      refresh().catch(() => {
+        if (status) status.textContent = "Feed refresh failed. The displayed results may be stale.";
+      });
+    },60_000);
   };
   update().catch(() => {
     if (status) status.textContent = "The public production feed is temporarily unavailable. No results are being shown as current.";
