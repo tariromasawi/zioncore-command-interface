@@ -295,7 +295,10 @@
       append(card, "p", `Next: ${text(record.next)}`);
       addEvidence(card, record.evidence);
     }
-    if (run.learning) {
+    if (run.learning?.tracking === "legacy") {
+      const learning = section("Learning trace", true);
+      append(learning, "p", "This historical run predates structured learning telemetry. External-AI use and paid cost are unknown; this run is not counted in measured totals.", "hint");
+    } else if (run.learning) {
       const learning = section("Learning trace", true);
       append(learning, "p", `Method: ${text(run.learning.methodId)} · version ${text(run.learning.methodVersion)}`);
       append(learning, "p", `Reused: ${Boolean(run.learning.knowledgeReused)} · verification: ${text(run.learning.verification)} · external AI: ${text(run.learning.externalAiMode)}`);
