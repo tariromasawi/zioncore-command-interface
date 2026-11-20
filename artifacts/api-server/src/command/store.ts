@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { CommandRun } from "@workspace/api-zod";
+import type { CommandRun, LearningEntry } from "@workspace/api-zod";
+import { currentKnowledge, sealEvaluation, verifySnapshot, type KnowledgeSnapshot } from "./knowledge";
 
 const projectId = "gen-lang-client-0266144152";
 const leaseMs = 4 * 60_000;
@@ -11,14 +12,19 @@ type Lease = { id: string; token: string };
 type Slot = { token: string; until: number; attempts: number; status: string; run?: CommandRun };
 type Suggestion = { programme: string; text: string };
 type Budget = { reserved: number; settled: number; tokens: number };
+export type SuggestionTriage={reviewed:number;programmeCounts:Record<string,number>};
+export type KnowledgeOutcome={entry:LearningEntry;outcome:"passed"|"failed"};
 
 export interface CommandStore {
   readonly production: boolean;
   list(): Promise<CommandRun[]>;
   claim(id: string): Promise<Lease | null>;
-  complete(lease: Lease, run: CommandRun): Promise<void>;
+  complete(lease: Lease, run: CommandRun, knowledge: KnowledgeOutcome[]): Promise<void>;
+  knowledge(): Promise<LearningEntry[]>;
+  importKnowledge(snapshot: KnowledgeSnapshot): Promise<void>;
+  allRunMetrics(): Promise<{internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}>;
   enqueue(input: Suggestion): Promise<string>;
-  review(): Promise<number>;
+  review(): Promise<SuggestionTriage>;
   reserve(id: string, amount: number, cap: number): Promise<boolean>;
   settle(id: string, actual: number, tokens: number): Promise<void>;
 }
@@ -43,6 +49,7 @@ function sqliteStore(path: string): CommandStore {
     CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, programme TEXT, text TEXT, status TEXT, submitted INTEGER);
     CREATE TABLE IF NOT EXISTS spend(day TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, day TEXT NOT NULL, amount INTEGER NOT NULL);`);
+  db.exec("CREATE TABLE IF NOT EXISTS knowledge(id TEXT PRIMARY KEY,value TEXT NOT NULL)");
   const tx = <T>(f: () => T): T => {
     db.exec("BEGIN IMMEDIATE");
     try { const r = f(); db.exec("COMMIT"); return r; }
@@ -64,7 +71,7 @@ function sqliteStore(path: string): CommandStore {
     production: false,
     async list() {
       return db.prepare("SELECT value FROM slots WHERE json_extract(value,'$.status')='complete' ORDER BY json_extract(value,'$.run.finishedAt') DESC LIMIT 24")
-        .all().map(row => (JSON.parse(String(row.value)) as Slot).run!);
+        .all().map(row => normalizeRun((JSON.parse(String(row.value)) as Slot).run!));
     },
     async claim(id) {
       return tx(() => {
@@ -74,8 +81,39 @@ function sqliteStore(path: string): CommandStore {
         return { id, token: next.token };
       });
     },
-    async complete(lease, run) {
-      tx(() => { const old = get(lease.id); checkLease(old, lease); set(lease.id, { ...old, status: "complete", run }); });
+    async complete(lease, run, knowledge) {
+      tx(() => {
+        const old=get(lease.id);checkLease(old,lease);
+        for(const {entry:learned,outcome} of knowledge) {
+          const saved=db.prepare("SELECT value FROM knowledge WHERE id=?").get(learned.id);
+          const entry=saved ? JSON.parse(String(saved.value)) as LearningEntry : learned;
+          const updated=sealEvaluation(entry,{runId:run.id,outcome,recordedAt:run.finishedAt});
+          db.prepare("INSERT INTO knowledge VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value").run(updated.id,JSON.stringify(updated));
+        }
+        set(lease.id,{...old,status:"complete",run});
+      });
+    },
+    async knowledge() {
+      return db.prepare("SELECT value FROM knowledge ORDER BY id").all()
+        .map(row=>currentKnowledge(JSON.parse(String(row.value)) as LearningEntry));
+    },
+    async importKnowledge(snapshot) {
+      const verified=verifySnapshot(snapshot);
+      tx(()=>{
+        for(const entry of verified.entries) {
+          const existing=db.prepare("SELECT value FROM knowledge WHERE id=?").get(entry.id);
+          if(existing) {
+            if(JSON.stringify(JSON.parse(String(existing.value)))!==JSON.stringify(entry)) throw new Error("Knowledge conflicts with existing local entry");
+          } else db.prepare("INSERT INTO knowledge VALUES(?,?)").run(entry.id,JSON.stringify(entry));
+        }
+      });
+    },
+    async allRunMetrics() {
+      const rows=db.prepare("SELECT value FROM slots WHERE json_extract(value,'$.status')='complete'").all();
+      const runs=rows.map(row=>normalizeRun((JSON.parse(String(row.value)) as Slot).run!)).filter(run=>run.learning.tracking==="measured");
+      return {internalMissionRuns:runs.filter(r=>r.learning.knowledgeReused&&r.learning.verification==="passed"&&r.learning.externalAiCalls===0&&r.learning.paidAiCalls===0).length,
+        externallyAssistedRuns:runs.filter(r=>r.learning.externalAiCalls>0).length,
+        paidAiCalls:runs.reduce((n,r)=>n+r.learning.paidAiCalls,0)};
     },
     async enqueue(input) {
       return tx(() => {
@@ -89,7 +127,15 @@ function sqliteStore(path: string): CommandStore {
       });
     },
     async review() {
-      return Number(db.prepare("UPDATE inbox SET status='triaged' WHERE id IN (SELECT id FROM inbox WHERE status='queued' ORDER BY submitted LIMIT 25)").run().changes);
+      const selected=tx(()=>{
+        const rows=db.prepare("SELECT id,programme FROM inbox WHERE status='queued' ORDER BY submitted LIMIT 25").all() as {id:string;programme:string}[];
+        const update=db.prepare("UPDATE inbox SET status='triaged' WHERE id=? AND status='queued'");
+        rows.forEach(item=>update.run(item.id));
+        return rows;
+      });
+      const programmeCounts:Record<string,number>={};
+      for(const item of selected) programmeCounts[item.programme]=(programmeCounts[item.programme]??0)+1;
+      return {reviewed:selected.length,programmeCounts};
     },
     async reserve(id, amount, cap) {
       return tx(() => {
@@ -114,6 +160,16 @@ function sqliteStore(path: string): CommandStore {
   };
 }
 
+function normalizeRun(value:unknown):CommandRun {
+  const run=value as CommandRun;
+  if(run.learning)return run;
+  return {...run,learning:{
+    tracking:"legacy",mission:"historical-untracked",methodId:"untracked",methodVersion:"untracked",
+    knowledgeId:null,knowledgeReused:false,verification:"not-run",externalAiMode:"unknown",
+    externalAiCalls:0,paidAiCalls:0,paidCostMicros:0,
+  }};
+}
+
 function nextSlot(previous: Slot | undefined): Slot | null {
   if (previous && (previous.status === "complete" || previous.until > Date.now() || previous.attempts >= 3)) return null;
   return { token: randomUUID(), until: Date.now()+leaseMs, attempts:(previous?.attempts ?? 0)+1,status:"running" };
@@ -134,9 +190,10 @@ function firestoreStore(): CommandStore {
   const spending = db.collection("commandSpending");
   const reservations = db.collection("commandReservations");
   const globalLimit = inboxDb.doc("commandControl/intake");
+  const learningStats=db.doc("commandMetadata/learningStats");
   return {
     production:true,
-    async list() { return (await runs.orderBy("finishedAt","desc").limit(24).get()).docs.map(doc => doc.data() as CommandRun); },
+    async list() { return (await runs.orderBy("finishedAt","desc").limit(24).get()).docs.map(doc => normalizeRun(doc.data())); },
     async claim(id) {
       return db.runTransaction(async tr => {
         const ref = slots.doc(id);
@@ -146,14 +203,48 @@ function firestoreStore(): CommandStore {
         return { id, token:next.token };
       });
     },
-    async complete(lease, run) {
+    async complete(lease, run, knowledge) {
       await db.runTransaction(async tr => {
         const ref = slots.doc(lease.id);
         const old = (await tr.get(ref)).data() as Slot | undefined;
         checkLease(old,lease);
+        const stats=(await tr.get(learningStats)).data() as {internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}|undefined;
+        const knowledgeRefs=knowledge.map(({entry})=>db.collection("commandKnowledge").doc(entry.id));
+        const existing=await Promise.all(knowledgeRefs.map(ref=>tr.get(ref)));
         tr.update(ref,{ status:"complete" });
         tr.create(runs.doc(lease.id),run);
+        knowledge.forEach(({entry,outcome},index)=>{
+          const saved=existing[index]?.data() as LearningEntry|undefined;
+          const updated=sealEvaluation(saved??entry,{runId:run.id,outcome,recordedAt:run.finishedAt});
+          tr.set(knowledgeRefs[index]!,updated);
+        });
+        tr.set(learningStats,{
+          internalMissionRuns:(stats?.internalMissionRuns??0)+Number(run.learning.tracking==="measured"&&run.learning.knowledgeReused&&run.learning.verification==="passed"&&run.learning.externalAiCalls===0&&run.learning.paidAiCalls===0),
+          externallyAssistedRuns:(stats?.externallyAssistedRuns??0)+Number(run.learning.tracking==="measured"&&run.learning.externalAiCalls>0),
+          paidAiCalls:(stats?.paidAiCalls??0)+(run.learning.tracking==="measured"?run.learning.paidAiCalls:0),
+        });
       });
+    },
+    async knowledge() {
+      const snapshot=await db.collection("commandKnowledge").limit(400).get();
+      return snapshot.docs.map(doc=>currentKnowledge(doc.data() as LearningEntry));
+    },
+    async importKnowledge(snapshot) {
+      const verified=verifySnapshot(snapshot);
+      const batch=db.batch();
+      for(const entry of verified.entries) {
+        const ref=db.collection("commandKnowledge").doc(entry.id);
+        const existing=await ref.get();
+        if(existing.exists) {
+          if(JSON.stringify(existing.data())!==JSON.stringify(entry)) throw new Error("Knowledge conflicts with existing Firestore entry");
+        } else batch.create(ref,entry);
+      }
+      if(verified.entries.length) await batch.commit();
+    },
+    async allRunMetrics() {
+      const stats=(await learningStats.get()).data() as {internalMissionRuns:number;externallyAssistedRuns:number;paidAiCalls:number}|undefined;
+      return {internalMissionRuns:stats?.internalMissionRuns??0,
+        externallyAssistedRuns:stats?.externallyAssistedRuns??0,paidAiCalls:stats?.paidAiCalls??0};
     },
     async enqueue(input) {
       if (process.env.COMMAND_ENABLE_INTAKE !== "1") throw new Error("intake-disabled");
@@ -170,10 +261,16 @@ function firestoreStore(): CommandStore {
     },
     async review() {
       const snapshot = await inbox.where("status","==","queued").limit(25).get();
+      const programmeCounts:Record<string,number>={};
       const batch = inboxDb.batch();
-      snapshot.docs.forEach(doc => batch.update(doc.ref,{ status:"triaged" },{lastUpdateTime:doc.updateTime}));
+      snapshot.docs.forEach(doc => {
+        const programme=String(doc.get("programme"));
+        if(["continuity","prosperity","heritage","preparedness"].includes(programme))
+          programmeCounts[programme]=(programmeCounts[programme]??0)+1;
+        batch.update(doc.ref,{ status:"triaged" },{lastUpdateTime:doc.updateTime});
+      });
       if (!snapshot.empty) await batch.commit();
-      return snapshot.size;
+      return {reviewed:snapshot.size,programmeCounts};
     },
     async reserve(id, amount, cap) {
       const day = month(), ref = spending.doc(day);

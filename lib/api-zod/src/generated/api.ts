@@ -11,6 +11,10 @@ import * as zod from 'zod';
 /**
  * @summary Public Command results and run history
  */
+export const getCommandFeedResponseKnowledgeItemIdRegExp = new RegExp('^[a-f0-9]{64}$');
+export const getCommandFeedResponseKnowledgeItemMethodChecksumRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
 export const GetCommandFeedResponse = zod.object({
   "state": zod.enum(['live', 'stale', 'blocked', 'example']),
   "cadence": zod.string(),
@@ -81,8 +85,53 @@ export const GetCommandFeedResponse = zod.object({
   "why": zod.string(),
   "action": zod.string(),
   "uncertainty": zod.string()
+})),
+  "learning": zod.object({
+  "tracking": zod.enum(['measured', 'legacy']),
+  "mission": zod.string(),
+  "methodId": zod.string(),
+  "methodVersion": zod.string(),
+  "knowledgeId": zod.string().nullable(),
+  "knowledgeReused": zod.boolean(),
+  "verification": zod.enum(['passed', 'failed', 'not-run']),
+  "externalAiMode": zod.enum(['disabled', 'model', 'unknown']),
+  "externalAiCalls": zod.number().int(),
+  "paidAiCalls": zod.number().int(),
+  "paidCostMicros": zod.number().int()
+})
+})),
+  "knowledge": zod.array(zod.object({
+  "id": zod.string().regex(getCommandFeedResponseKnowledgeItemIdRegExp),
+  "methodId": zod.string(),
+  "methodChecksum": zod.string().regex(getCommandFeedResponseKnowledgeItemMethodChecksumRegExp),
+  "title": zod.string(),
+  "programme": zod.string(),
+  "version": zod.string(),
+  "status": zod.enum(['verified', 'failed', 'stale']),
+  "sourceRunId": zod.string(),
+  "createdAt": zod.string(),
+  "refreshAt": zod.string(),
+  "method": zod.string(),
+  "evidence": zod.array(zod.object({
+  "label": zod.string(),
+  "detail": zod.string(),
+  "url": zod.string().optional()
+})),
+  "uncertainty": zod.string(),
+  "evaluations": zod.array(zod.object({
+  "runId": zod.string(),
+  "outcome": zod.enum(['passed', 'failed']),
+  "recordedAt": zod.string()
 }))
-}))
+})),
+  "learning": zod.object({
+  "internalMissionRuns": zod.number().int(),
+  "externallyAssistedRuns": zod.number().int(),
+  "paidAiCalls": zod.number().int(),
+  "externalAiDisabledForMission": zod.boolean(),
+  "paidAiCallsAvoided": zod.number().int(),
+  "latestMethodVersion": zod.string()
+})
 })
 
 
@@ -102,6 +151,52 @@ export const SubmitCommandSuggestionBody = zod.object({
 export const SubmitCommandSuggestionResponse = zod.object({
   "id": zod.string(),
   "status": zod.string()
+})
+
+
+/**
+ * @summary Download the approved portable knowledge snapshot
+ */
+export const exportCommandKnowledgeResponseEntryCountMin = 0;
+export const exportCommandKnowledgeResponseEntryCountMax = 400;
+
+export const exportCommandKnowledgeResponseEntriesItemIdRegExp = new RegExp('^[a-f0-9]{64}$');
+export const exportCommandKnowledgeResponseEntriesItemMethodChecksumRegExp = new RegExp('^[a-f0-9]{64}$');
+export const exportCommandKnowledgeResponseEntriesMax = 400;
+
+export const exportCommandKnowledgeResponseChecksumRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const ExportCommandKnowledgeResponse = zod.object({
+  "format": zod.enum(['zioncore-command-knowledge']),
+  "version": zod.literal(1),
+  "createdAt": zod.coerce.date(),
+  "entryCount": zod.number().int().min(exportCommandKnowledgeResponseEntryCountMin).max(exportCommandKnowledgeResponseEntryCountMax),
+  "entries": zod.array(zod.object({
+  "id": zod.string().regex(exportCommandKnowledgeResponseEntriesItemIdRegExp),
+  "methodId": zod.string(),
+  "methodChecksum": zod.string().regex(exportCommandKnowledgeResponseEntriesItemMethodChecksumRegExp),
+  "title": zod.string(),
+  "programme": zod.string(),
+  "version": zod.string(),
+  "status": zod.enum(['verified', 'failed', 'stale']),
+  "sourceRunId": zod.string(),
+  "createdAt": zod.string(),
+  "refreshAt": zod.string(),
+  "method": zod.string(),
+  "evidence": zod.array(zod.object({
+  "label": zod.string(),
+  "detail": zod.string(),
+  "url": zod.string().optional()
+})),
+  "uncertainty": zod.string(),
+  "evaluations": zod.array(zod.object({
+  "runId": zod.string(),
+  "outcome": zod.enum(['passed', 'failed']),
+  "recordedAt": zod.string()
+}))
+})).max(exportCommandKnowledgeResponseEntriesMax),
+  "checksum": zod.string().regex(exportCommandKnowledgeResponseChecksumRegExp)
 })
 
 

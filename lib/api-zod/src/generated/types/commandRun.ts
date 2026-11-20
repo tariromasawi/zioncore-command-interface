@@ -7,6 +7,7 @@
  */
 import type { Advice } from './advice';
 import type { EngineResult } from './engineResult';
+import type { LearningTrace } from './learningTrace';
 import type { Research } from './research';
 import type { Warning } from './warning';
 
@@ -20,4 +21,5 @@ export interface CommandRun {
   research: Research[];
   warnings: Warning[];
   advice: Advice[];
+  learning: LearningTrace;
 }

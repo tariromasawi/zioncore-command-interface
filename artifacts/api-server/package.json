@@ -8,6 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "runner": "node --enable-source-maps ./dist/jobMain.mjs",
+    "knowledge": "node --enable-source-maps ./dist/command/knowledgeMain.mjs",
     "test": "esbuild test/command.test.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/command.test.mjs && node --test dist/command.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

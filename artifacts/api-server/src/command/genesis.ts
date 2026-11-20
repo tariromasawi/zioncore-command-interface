@@ -13,7 +13,7 @@ export type Model = {
   inputMicrosPerMillion:number; outputMicrosPerMillion:number;
   billableOutputLimit?:number;
 };
-type AiResult = {status:"blocked"|"measured"; note:string; version?:string; checksum?:string; model?:string; inputTokens?:number; outputTokens?:number; costMicros?:number};
+type AiResult = {status:"blocked"|"measured"; note:string; version?:string; checksum?:string; model?:string;tier?:"free"|"paid"; inputTokens?:number; outputTokens?:number; costMicros?:number;externalAiCalls:number;paidAiCalls:number};
 const maxOutput = 256;
 const task = "Classify the next benign, public documentation research question: how should a library compare two authorized archive inventory methods? Return just a short research category. Do not request actions or call tools.";
 const validInt = (n:number) => Number.isSafeInteger(n) && n>=0;
@@ -70,7 +70,7 @@ export async function askGenesis({
   seed:Seed|null; models:Model[]; ledger:Pick<CommandStore,"reserve"|"settle">;
   cap:number; request?:typeof fetch; complex?:boolean;
 }):Promise<AiResult> {
-  if (!seed || sha(seed.text)!==seed.checksum) return {status:"blocked",note:"Canonical Genesis bytes have not been approved and verified."};
+  if (!seed || sha(seed.text)!==seed.checksum) return {status:"blocked",note:"Canonical Genesis bytes have not been approved and verified.",externalAiCalls:0,paidAiCalls:0};
   const ordered=complex ? [...models].sort((a,b)=>Number(b.tier==="paid")-Number(a.tier==="paid")) : models;
   // Every outbound request, including token count, uses the same isolated Seed field.
   const generateContentRequest={
@@ -79,6 +79,7 @@ export async function askGenesis({
     generationConfig:{maxOutputTokens:maxOutput},
   };
   const failures=new Set<string>();
+  let externalAiCalls=0,paidAiCalls=0;
   for (const model of ordered) {
     if (model.tier==="paid" && (!validInt(cap) || cap===0)) {failures.add("paid budget disabled");continue;}
     const send=(endpoint:string, body:object)=>request(
@@ -87,7 +88,8 @@ export async function askGenesis({
     );
     let count:number;
     try {
-      const r=await send("countTokens",{generateContentRequest:{model:`models/${model.name}`, ...generateContentRequest}});
+      const r=await send("countTokens",{model:`models/${model.name}`, ...generateContentRequest});
+      externalAiCalls++;
       if (!r.ok) {await r.body?.cancel();failures.add("provider token count unavailable");continue;}
       count=Number((await r.json() as {totalTokens?:unknown}).totalTokens);
       if (!validInt(count) || count===0 || count+(model.billableOutputLimit ?? maxOutput)>model.context) {failures.add("full Seed and response do not fit");continue;}
@@ -98,7 +100,7 @@ export async function askGenesis({
       const id=randomUUID();
       if (model.tier==="paid" && !(await ledger.reserve(id,estimate,cap))) {failures.add("paid budget exhausted");break;}
       let r:Response;
-      try { r=await send("generateContent",generateContentRequest); }
+      try { r=await send("generateContent",generateContentRequest);externalAiCalls++;if(model.tier==="paid")paidAiCalls++; }
       catch {failures.add("model request timed out or failed");continue;} // An ambiguous charge keeps its reservation.
       if (!r.ok) {
         await r.body?.cancel();
@@ -123,9 +125,9 @@ export async function askGenesis({
           failures.add("model returned no result");
           break;
         }
-        return {status:"measured",note:`${model.tier} model ${model.name} returned a research classification. Genesis ${seed.version} SHA-256 ${seed.checksum}. ${validUsage?`${input} input and ${output+thinking} billable output tokens, estimated USD ${(charged/1e6).toFixed(6)}.`:"Provider did not return complete usage."} No model output was executed.`,version:seed.version,checksum:seed.checksum,model:model.name,...(validUsage?{inputTokens:input,outputTokens:output+thinking,costMicros:charged}:{})};
+        return {status:"measured",note:`${model.tier} model ${model.name} returned a research classification. Genesis ${seed.version} SHA-256 ${seed.checksum}. ${validUsage?`${input} input and ${output+thinking} billable output tokens, estimated USD ${(charged/1e6).toFixed(6)}.`:"Provider did not return complete usage."} No model output was executed.`,version:seed.version,checksum:seed.checksum,model:model.name,tier:model.tier,externalAiCalls,paidAiCalls,...(validUsage?{inputTokens:input,outputTokens:output+thinking,costMicros:charged}:{})};
       } catch {failures.add("provider response could not be verified");break;}
     }
   }
-  return {status:"blocked",note:failures.size ? `AI skipped: ${[...failures].join("; ")}.` : "No approved model and provider key are configured."};
+  return {status:"blocked",note:failures.size ? `AI skipped: ${[...failures].join("; ")}.` : "No approved model and provider key are configured.",externalAiCalls,paidAiCalls};
 }

@@ -40,7 +40,7 @@ app.use("/api", router);
 if (process.env["COMMAND_WEB_DIR"]) {
   const web=resolve(process.env["COMMAND_WEB_DIR"]);
   app.use(express.static(web,{dotfiles:"deny"}));
-  app.get(["/","/command.html","/engines/:id","/research","/runs","/runs/:id","/genesis","/continuity"],(_req,res)=>res.sendFile(resolve(web,"index.html")));
+  app.get(["/","/command.html","/engines/:id","/research","/knowledge","/runs","/runs/:id","/genesis","/continuity"],(_req,res)=>res.sendFile(resolve(web,"index.html")));
 }
 
 const hideError: ErrorRequestHandler=(error,_req,res,next)=>{

@@ -27,8 +27,13 @@ jobs:
           docker volume create command-ci-state
           docker run --rm --user 0 -v command-ci-state:/state zioncore-command:ci chown node:node /state
           docker run --rm -v command-ci-state:/state -e NODE_ENV=development -e COMMAND_SQLITE_PATH=/state/command.sqlite zioncore-command:ci node dist/jobMain.mjs archive-exercise
+          docker run --rm -v command-ci-state:/state -e NODE_ENV=development -e COMMAND_SQLITE_PATH=/state/command.sqlite zioncore-command:ci node dist/command/knowledgeMain.mjs export /state/knowledge.json
+          docker run --rm -v command-ci-state:/state -e NODE_ENV=development -e COMMAND_STORE=sqlite -e COMMAND_SQLITE_PATH=/state/restored.sqlite -e COMMAND_KNOWLEDGE_RESTORE=1 zioncore-command:ci node dist/command/knowledgeMain.mjs restore /state/knowledge.json
+          docker run --rm -v command-ci-state:/state -e NODE_ENV=development -e COMMAND_STORE=sqlite -e COMMAND_SQLITE_PATH=/state/restored.sqlite zioncore-command:ci node dist/command/knowledgeMain.mjs verify /state/knowledge.json
           id=$(docker run -d -v command-ci-state:/state -p 127.0.0.1:8080:8080 -e NODE_ENV=development -e COMMAND_SQLITE_PATH=/state/command.sqlite zioncore-command:ci)
           trap 'docker logs "$id"; docker rm -f "$id"; docker volume rm command-ci-state' EXIT
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/api/healthz
-          curl --fail http://127.0.0.1:8080/api/command/feed | jq -e '(.engines | length == 14) and (.runs[0].id == "archive-exercise-v1")'
+          curl --fail http://127.0.0.1:8080/api/command/feed | jq -e '(.engines | length == 14) and (.runs[0].id == "archive-exercise-v1") and (.knowledge | length == 2)'
+          curl --fail http://127.0.0.1:8080/api/command/knowledge/export | jq -e '.format == "zioncore-command-knowledge" and .entryCount == 2'
           curl --fail http://127.0.0.1:8080/engines/high-freq-purification
+          curl --fail http://127.0.0.1:8080/knowledge

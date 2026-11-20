@@ -3,6 +3,7 @@ import { GetCommandFeedResponse, SubmitCommandSuggestionBody } from "@workspace/
 import { getFeed } from "../command/cycle";
 import { safeSuggestion } from "../command/engines";
 import { openStore } from "../command/store";
+import { exportSnapshot } from "../command/knowledge";
 
 const router = Router();
 const store = openStore();
@@ -17,6 +18,20 @@ router.get("/command/feed", async (req,res) => {
     cache=undefined;
     req.log.error("Public Command feed unavailable");
     res.status(503).json({error:"Results are temporarily unavailable."});
+  }
+});
+
+router.get("/command/knowledge/export",async(req,res)=>{
+  try {
+    const snapshot=exportSnapshot(await store.knowledge());
+    res.set({
+      "Cache-Control":"no-store",
+      "Content-Disposition":'attachment; filename="zioncore-command-knowledge-v1.json"',
+      "X-Content-Type-Options":"nosniff",
+    }).type("application/json").send(JSON.stringify(snapshot));
+  } catch {
+    req.log.error("Portable Command knowledge export unavailable");
+    res.status(503).json({error:"Knowledge export is temporarily unavailable."});
   }
 });
 

@@ -3,13 +3,12 @@ import { openStore } from "./command/store";
 import { logger } from "./lib/logger";
 
 const mode=process.argv[2] ?? "preview";
-const modes:CycleKind[]=["preview","scheduled","daily-review","archive-exercise"];
+const modes:CycleKind[]=["preview","scheduled","daily-review","archive-exercise","internal-replay"];
 if (!modes.includes(mode as CycleKind)) throw new Error("Unrecognized runner mode");
 const store=openStore();
-if (mode==="preview" && store.production) throw new Error("Preview mode cannot write to production");
+if ((mode==="preview" || mode==="archive-exercise" || mode==="internal-replay") && store.production)
+  throw new Error("Preview and demonstration runs cannot write to production");
 if ((mode==="scheduled" || mode==="daily-review") && !store.production) throw new Error("Scheduled modes require production");
-if (mode==="archive-exercise" && store.production && process.env.COMMAND_ALLOW_ARCHIVE_EXERCISE!=="1")
-  throw new Error("Archive exercises require an isolated, operator-invoked execution");
 const watchdog=setTimeout(()=>{logger.error("Command runner exceeded its time limit");process.exit(1);},180_000);
 try {
   const run=await runCycle(store,mode as CycleKind);
