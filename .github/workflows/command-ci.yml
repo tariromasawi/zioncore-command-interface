@@ -31,6 +31,8 @@ jobs:
           trap 'rm -rf "$seed_mount"' EXIT
           mkdir -p "$seed_mount/approved/1.1.0"
           cp "Genesis seed.ts" "$seed_mount/approved/1.1.0/genesis-seed.ts"
+          chmod 755 "$seed_mount" "$seed_mount/approved" "$seed_mount/approved/1.1.0"
+          chmod 444 "$seed_mount/approved/1.1.0/genesis-seed.ts"
           docker run --rm \
             --mount "type=bind,source=$seed_mount,target=/mnt/genesis,readonly" \
             -e NODE_ENV=production \
