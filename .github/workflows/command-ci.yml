@@ -25,7 +25,21 @@ jobs:
       - run: bash -n ops/cloud.sh
       - run: bash -n ops/prepare-genesis-seed.sh
       - run: bash -n ops/prepare-cloudbuild-research.sh
+      - run: bash -n ops/check-forward-only-iam.sh
       - run: bash -n ops/deploy-research-job.sh
+      - run: bash -n ops/verify-source-build.sh
+      - run: bash -n ops/verify-research-image.sh
+      - run: node --check ops/append-only-check.mjs
+      - run: node --check ops/compose-versioned-release.mjs
+      - run: node --test ops/append-only-check.test.mjs ops/compose-versioned-release.test.mjs
+      - name: Compose the latest immutable release
+        run: |
+          output="$GITHUB_WORKSPACE/.composed-release-ci"
+          trap 'rm -rf "$output"' EXIT
+          node ops/compose-versioned-release.mjs \
+            --manifest latest \
+            --output "$output" \
+            --source-commit "$GITHUB_SHA"
       - run: docker build -t zioncore-command:ci .
       - name: Check the approved Seed read-only mount with AI disabled
         run: |
@@ -59,5 +73,6 @@ jobs:
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/api/healthz
           curl --fail http://127.0.0.1:8080/api/command/feed | jq -e '(.engines | length == 14) and (.runs[0].id == "archive-exercise-v1") and (.knowledge | length == 2)'
           curl --fail http://127.0.0.1:8080/api/command/knowledge/export | jq -e '.format == "zioncore-command-knowledge" and .entryCount == 2'
+           curl --fail http://127.0.0.1:8080/api/command/knowledge/versions | jq -e '.versions | length == 2 and all(.[]; .supersedes == null)'
           curl --fail http://127.0.0.1:8080/engines/high-freq-purification
           curl --fail http://127.0.0.1:8080/knowledge

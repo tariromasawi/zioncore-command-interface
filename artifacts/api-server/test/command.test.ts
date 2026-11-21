@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import "./dailyResearch.test";
+import "./knowledgeArchive.test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { archiveExercise, benchmark, safePublicResourceUrl, safeSuggestion, sha } from "../src/command/engines";
 import { getFeed, projectRun, runCycle } from "../src/command/cycle";
 import { askGenesis, configuredModels, loadSeed, paidAiMonthlyCap, publishedCandidate, type Model } from "../src/command/genesis";
-import { openStore } from "../src/command/store";
+import { firestoreReservationSettlement, openStore } from "../src/command/store";
 import { evaluateEvolutionMethod, exportSnapshot, learnContinuity, learnEvolution, verifyMethod, verifySnapshot } from "../src/command/knowledge";
 
 test("workflow promotes equivalent lookup and rolls back a faulty candidate", () => {
@@ -58,11 +59,39 @@ test("durable run lease, repeated trigger, feed allowlist and private inbox", as
     assert.equal(JSON.stringify(feed).includes(text),false);
     assert.equal(JSON.stringify(projectRun(Object.assign(run,{privateText:text}))).includes(text),false);
     assert.equal(JSON.stringify(feed).includes("unverified"),true);
+    const initialVersions=await second.knowledgeVersions();
+    assert.equal(initialVersions.length,2);
+    assert.ok(initialVersions.every(version=>version.supersedes===null));
+    const followupLease=await second.claim("knowledge-version-followup");
+    assert.ok(followupLease);
+    const followupAt=new Date(+new Date(run.finishedAt)+1).toISOString();
+    await second.complete(followupLease,{...run,id:followupLease.id,startedAt:followupAt,finishedAt:followupAt},
+      [{entry:feed.knowledge[0]!,outcome:"passed"}]);
+    const linkedVersions=(await second.knowledgeVersions()).filter(version=>version.knowledgeId===feed.knowledge[0]?.id);
+    assert.equal(linkedVersions.length,2);
+    assert.equal(linkedVersions[1]?.supersedes,linkedVersions[0]?.versionId);
+    assert.equal(linkedVersions[0]?.entry.evaluations.length,1);
+    assert.equal(linkedVersions[1]?.entry.evaluations.length,2);
     const amounts=await Promise.all([first.reserve("one",60,100),second.reserve("two",60,100)]);
     assert.equal(amounts.filter(Boolean).length,1);
     await first.settle("one",20,100);
+    await first.settle("one",20,100);
+    const ledger=new DatabaseSync(env.COMMAND_SQLITE_PATH);
+    const settled=ledger.prepare("SELECT status,actual,tokens FROM reservations WHERE id=?").get("one") as
+      {status:string;actual:number;tokens:number}|undefined;
+    assert.equal(settled?.status,"settled");
+    assert.equal(settled?.actual,20);
+    assert.equal(settled?.tokens,100);
+    ledger.close();
     assert.equal(await second.reserve("three",80,100),true);
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test("Firestore AI reservations are settled in place and repeated settlement is idempotent",()=>{
+  const patch=firestoreReservationSettlement({amount:60,status:"reserved"},20,100,1234);
+  assert.deepEqual(patch,{status:"settled",actual:20,tokens:100,settledAt:1234});
+  assert.equal(firestoreReservationSettlement({amount:60,status:"settled"},20,100,1235),null);
+  assert.throws(()=>firestoreReservationSettlement({amount:10,status:"reserved"},20,100,1234),/exceeds reservation/);
 });
 
 test("stored method is reloaded and evaluated without AI on fresh inputs", async ()=>{
@@ -89,6 +118,7 @@ test("stored method is reloaded and evaluated without AI on fresh inputs", async
     assert.equal(feed.learning.paidAiCalls,0);
     assert.equal(feed.learning.paidAiCallsAvoided,2);
     assert.equal(feed.knowledge[0]?.evaluations.length,3);
+    assert.equal((await openStore(env).knowledgeVersions()).filter(version=>version.knowledgeId===feed.knowledge[0]?.id).length,3);
     assert.equal(JSON.stringify(feed).includes("test@example.org"),false);
   } finally { await rm(dir,{recursive:true,force:true}); }
 });
@@ -359,6 +389,10 @@ test("suggestion CORS permits Pages POST preflight while keeping submissions pri
     assert.equal(publicFeed.includes(resourceUrl),false);
     const otherFeed=await fetch(`${base}/feed`,{headers:{origin:"https://example.org"}});
     assert.equal(otherFeed.headers.get("access-control-allow-origin"),null);
+    const versionHistory=await fetch(`${base}/knowledge/versions`,{headers:{origin}});
+    assert.equal(versionHistory.status,200);
+    assert.equal(versionHistory.headers.get("cache-control"),"public, max-age=60");
+    assert.ok(Array.isArray((await versionHistory.json() as {versions:unknown[]}).versions));
     const unrelated=await fetch(`${base}/knowledge/export`,{headers:{origin}});
     assert.equal(unrelated.headers.get("access-control-allow-origin"),null);
   } finally {

@@ -7,6 +7,7 @@ REPOSITORY=command-public-images
 JOB=zioncore-command-research
 RUNTIME_SA="command-runner@$PROJECT.iam.gserviceaccount.com"
 SEED_BUCKET=zioncore-command-genesis-seed-740460863819
+KNOWLEDGE_BUCKET=zioncore-command-knowledge-740460863819
 SEED_OBJECT=approved/1.1.0/genesis-seed.ts
 SEED_PATH=/mnt/genesis/approved/1.1.0/genesis-seed.ts
 SEED_VERSION=1.1.0
@@ -34,13 +35,35 @@ g() {
 [[ "${BRANCH_NAME:-}" == "release/command-public-rebuild" ]] ||
   die "Cloud Build must run from release/command-public-rebuild."
 
-image_tag="${1:-}"
-[[ "$image_tag" =~ ^${REGION}-docker\.pkg\.dev/${PROJECT}/${REPOSITORY}/command:[a-f0-9]{40}$ ]] ||
-  die "Expected an immutable full-commit tag in the ZionCore Command Artifact Registry repository."
+image_ref="${1:-}"
+if [[ -z "$image_ref" && -n "${RELEASE_IMAGE_FILE:-}" ]]; then
+  [[ -f "$RELEASE_IMAGE_FILE" ]] || die "The verified image digest file is missing."
+  image_ref="$(cat "$RELEASE_IMAGE_FILE")"
+fi
+expected_commit="${SOURCE_COMMIT:-${COMMIT_SHA:-}}"
+[[ "$expected_commit" =~ ^[a-f0-9]{40}$ ]] ||
+  die "The exact full source commit is required for a research release."
+if [[ -n "${COMMIT_SHA:-}" && "$COMMIT_SHA" != "$expected_commit" ]]; then
+  die "The deployment trigger source commit does not match the built release."
+fi
 
-digest="$(g artifacts docker images describe "$image_tag" --format='value(image_summary.digest)')"
-[[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || die "The pushed image digest could not be verified."
-image="${image_tag%:*}@$digest"
+if [[ "$image_ref" =~ ^${REGION}-docker\.pkg\.dev/${PROJECT}/${REPOSITORY}/command@sha256:[a-f0-9]{64}$ ]]; then
+  image="$image_ref"
+  digest="${image_ref##*@}"
+  image_tag="${image_ref%@*}:$expected_commit"
+  actual_digest="$(g artifacts docker images describe "$image_tag" --format='value(image_summary.digest)')"
+  [[ "$actual_digest" == "$digest" ]] ||
+    die "The commit tag no longer points to the requested published image digest."
+elif [[ "$image_ref" =~ ^${REGION}-docker\.pkg\.dev/${PROJECT}/${REPOSITORY}/command:[a-f0-9]{40}$ ]]; then
+  image_tag="$image_ref"
+  [[ "${image_tag##*:}" == "$expected_commit" ]] ||
+    die "The image tag does not match the exact source commit."
+  digest="$(g artifacts docker images describe "$image_tag" --format='value(image_summary.digest)')"
+  [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || die "The pushed image digest could not be verified."
+  image="${image_tag%:*}@$digest"
+else
+  die "Expected a commit-tagged or digest-pinned image in the ZionCore Command repository."
+fi
 printf 'Published image digest: %s\n' "$image"
 
 bucket_location="$(g storage buckets describe "gs://$SEED_BUCKET" --format='value(location)')"
@@ -49,6 +72,13 @@ bucket_ubla="$(g storage buckets describe "gs://$SEED_BUCKET" --format='value(ia
 [[ "${bucket_location,,}" == "$REGION" ]] || die "The approved Seed bucket is not in $REGION."
 [[ "${bucket_pap,,}" == enforced && "${bucket_ubla,,}" == true ]] ||
   die "The approved Seed bucket must keep Public Access Prevention and uniform bucket-level access enabled."
+
+knowledge_location="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(location)')"
+knowledge_pap="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(iamConfiguration.publicAccessPrevention)')"
+knowledge_ubla="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)')"
+[[ "${knowledge_location,,}" == "$REGION" ]] || die "The knowledge archive bucket is not in $REGION."
+[[ "${knowledge_pap,,}" == enforced && "${knowledge_ubla,,}" == true ]] ||
+  die "The knowledge archive must keep Public Access Prevention and uniform bucket-level access enabled."
 
 seed_uri="gs://$SEED_BUCKET/$SEED_OBJECT"
 seed_size="$(g storage objects describe "$seed_uri" --format='value(size)')"
@@ -68,16 +98,20 @@ g run jobs describe "$JOB" --region="$REGION" --format=json > "$job_json"
 
 # Require the least-privilege runtime bindings before changing the live job.
 bucket_policy="$(mktemp)"
+knowledge_policy="$(mktemp)"
 secret_policy="$(mktemp)"
-trap 'rm -f "$job_json" "$bucket_policy" "$secret_policy"' EXIT
+trap 'rm -f "$job_json" "$bucket_policy" "$knowledge_policy" "$secret_policy"' EXIT
 g storage buckets get-iam-policy "gs://$SEED_BUCKET" --format=json > "$bucket_policy"
+g storage buckets get-iam-policy "gs://$KNOWLEDGE_BUCKET" --format=json > "$knowledge_policy"
 g secrets get-iam-policy "$AI_SECRET" --format=json > "$secret_policy"
-if ! python3 - "$bucket_policy" "$secret_policy" "$RUNTIME_SA" <<'PY'
+if ! python3 - "$bucket_policy" "$knowledge_policy" "$secret_policy" "$RUNTIME_SA" <<'PY'
 import json, sys
 
-member = "serviceAccount:" + sys.argv[3]
+member = "serviceAccount:" + sys.argv[4]
 for path, role in ((sys.argv[1], "roles/storage.objectViewer"),
-                   (sys.argv[2], "roles/secretmanager.secretAccessor")):
+                   (sys.argv[2], "roles/storage.objectViewer"),
+                   (sys.argv[2], "roles/storage.objectCreator"),
+                   (sys.argv[3], "roles/secretmanager.secretAccessor")):
     policy = json.load(open(path, encoding="utf-8"))
     if not any(binding.get("role") == role and member in (binding.get("members") or [])
                and not binding.get("condition")
@@ -146,7 +180,7 @@ update_args=(
   "--parallelism=1"
   "--cpu=1"
   "--memory=512Mi"
-  "--update-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=zioncore-command,COMMAND_GENESIS_PATH=$SEED_PATH,COMMAND_GENESIS_VERSION=$SEED_VERSION,COMMAND_GENESIS_SHA256=$SEED_SHA256,COMMAND_ENABLE_GENESIS_AI=1,COMMAND_ENABLE_DAILY_GENESIS=1,COMMAND_ENABLE_PAID_AI=1,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=$MONTHLY_AI_CAP,COMMAND_PAID_AI_EXECUTION_CAP_MICROS=$EXECUTION_AI_CAP,COMMAND_PAID_AI_BUDGET_THROUGH_MONTH=$AI_BUDGET_THROUGH_MONTH,COMMAND_PAID_MODEL_NAME=$MODEL,COMMAND_PAID_MODEL_CONTEXT=$MODEL_CONTEXT,COMMAND_PAID_MODEL_INPUT_MICROS_PER_MILLION=$MODEL_INPUT_MICROS,COMMAND_PAID_MODEL_OUTPUT_MICROS_PER_MILLION=$MODEL_OUTPUT_MICROS,COMMAND_PAID_MODEL_BILLABLE_OUTPUT_LIMIT=$MODEL_OUTPUT_LIMIT"
+  "--update-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=zioncore-command,COMMAND_KNOWLEDGE_ARCHIVE_BUCKET=$KNOWLEDGE_BUCKET,COMMAND_GENESIS_PATH=$SEED_PATH,COMMAND_GENESIS_VERSION=$SEED_VERSION,COMMAND_GENESIS_SHA256=$SEED_SHA256,COMMAND_ENABLE_GENESIS_AI=1,COMMAND_ENABLE_DAILY_GENESIS=1,COMMAND_ENABLE_PAID_AI=1,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=$MONTHLY_AI_CAP,COMMAND_PAID_AI_EXECUTION_CAP_MICROS=$EXECUTION_AI_CAP,COMMAND_PAID_AI_BUDGET_THROUGH_MONTH=$AI_BUDGET_THROUGH_MONTH,COMMAND_PAID_MODEL_NAME=$MODEL,COMMAND_PAID_MODEL_CONTEXT=$MODEL_CONTEXT,COMMAND_PAID_MODEL_INPUT_MICROS_PER_MILLION=$MODEL_INPUT_MICROS,COMMAND_PAID_MODEL_OUTPUT_MICROS_PER_MILLION=$MODEL_OUTPUT_MICROS,COMMAND_PAID_MODEL_BILLABLE_OUTPUT_LIMIT=$MODEL_OUTPUT_LIMIT"
   "--update-secrets=COMMAND_PAID_PROVIDER_KEY=$AI_SECRET:latest"
 )
 if [[ "$add_volume" == 1 ]]; then
@@ -166,3 +200,5 @@ printf 'Monthly paid-AI cap: %s micros; per-execution cap: %s micros; active thr
 # This test mode verifies the mounted bytes but never sends a model request.
 g run jobs execute "$JOB" --region="$REGION" \
   --args=dist/jobMain.mjs,seed-check --wait
+g run jobs execute "$JOB" --region="$REGION" \
+  --args=dist/jobMain.mjs,knowledge-archive-check --wait

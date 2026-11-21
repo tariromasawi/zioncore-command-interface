@@ -1,12 +1,23 @@
 import { Download, History, ShieldCheck, Sparkles } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useFeed, fmt } from "@/hooks/use-feed";
 import { Empty, Failure, PageHead, Skeleton, StatusChip } from "@/components/bits";
 
 const usd=(micros:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(micros/1_000_000);
+type KnowledgeVersionRecord={versionId:string;knowledgeId:string;supersedes:string|null;entry:{sourceRunId:string};recordedAt:string};
 
 export default function KnowledgePage() {
   const query=useFeed();
+  const versionsQuery=useQuery({
+    queryKey:["command-knowledge-versions"],
+    queryFn:async()=>{
+      const response=await fetch("/api/command/knowledge/versions",{headers:{accept:"application/json"}});
+      if(!response.ok)throw new Error("Knowledge version history is unavailable");
+      return (await response.json() as {versions:KnowledgeVersionRecord[]}).versions;
+    },
+    staleTime:60_000,
+  });
   if(query.isLoading)return <Skeleton rows={8}/>;
   if(query.isError||!query.data)return <Failure onRetry={()=>query.refetch()}/>;
   const {learning,knowledge}=query.data;
@@ -48,7 +59,9 @@ export default function KnowledgePage() {
     <section className="space-y-3" aria-labelledby="knowledge-entries">
       <h2 id="knowledge-entries" className="font-display font-semibold">Versioned methods</h2>
       {!knowledge.length?<Empty title="No verified knowledge yet" body="The first successful research cycle records its reproducible method and evidence here."/>:
-        knowledge.map(entry=><article key={entry.id} className="border border-card-border bg-card/80">
+        knowledge.map(entry=>{
+          const versions=versionsQuery.data?.filter(version=>version.knowledgeId===entry.id)??[];
+          return <article key={entry.id} className="border border-card-border bg-card/80">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2">
             <h3 className="font-display font-semibold text-sm">{entry.title}</h3>
             <StatusChip status={entry.status}/>
@@ -85,7 +98,25 @@ export default function KnowledgePage() {
                 </Link>
               </li>)}</ul>}
           </div>
-        </article>)}
+          <div className="border-t border-border p-3">
+            <h4 className="font-mono text-[10px] uppercase text-muted-foreground">
+              Append-only record history · {versionsQuery.isLoading?"loading":versionsQuery.isError?"unavailable":`${versions.length} versions`}
+            </h4>
+            {versionsQuery.isError?<p className="mt-2 text-xs text-muted-foreground">Stored history could not be loaded; the current verified method remains available.</p>:
+              versions.length>0?<ol className="mt-2 space-y-2 text-xs">
+                {versions.map(version=><li id={`knowledge-version-${version.versionId}`} key={version.versionId} className="border border-border p-2">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <span className="font-mono">record {version.versionId}</span>
+                    <span>{fmt(version.recordedAt)}</span>
+                    {version.supersedes?<a className="text-primary underline" href={`#knowledge-version-${version.supersedes}`}>supersedes {version.supersedes}</a>:<span className="text-muted-foreground">first retained version</span>}
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    Source run: <Link className="text-primary underline" href={`/runs/${version.entry.sourceRunId}`}>{version.entry.sourceRunId}</Link>
+                  </div>
+                </li>)}
+              </ol>:<p className="mt-2 text-xs text-muted-foreground">No version records have been written yet.</p>}
+          </div>
+        </article>})}
     </section>
     <p className="mt-5 border border-border p-3 text-xs text-muted-foreground">
       <Sparkles className="mr-1 inline size-3.5 text-primary"/>This mission uses deterministic code and synthetic fixtures. No model or paid AI call was needed to run or replay it. Suggestions, model output and stored research cannot launch jobs or change deployments.

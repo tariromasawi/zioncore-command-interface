@@ -1,0 +1,35 @@
+substitutions:
+  _LOCATION: europe-west2
+  _AR_REPOSITORY: command-public-images
+  _BUILDER_TRIGGER_ID: ""
+steps:
+  - id: verify-successful-source-build
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env:
+      - DEPLOY_COMMIT=$COMMIT_SHA
+      - DEPLOY_BRANCH=$BRANCH_NAME
+      - BUILDER_TRIGGER_ID=${_BUILDER_TRIGGER_ID}
+      - VERIFIED_IMAGE_FILE=/workspace/verified-image.txt
+    args:
+      - ops/verify-source-build.sh
+  - id: verify-digest-and-image-label
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - RELEASE_IMAGE_FILE=/workspace/verified-image.txt
+      - EXPECTED_COMMIT=$COMMIT_SHA
+    args:
+      - ops/verify-research-image.sh
+  - id: update-only-research-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env:
+      - BRANCH_NAME=$BRANCH_NAME
+      - COMMIT_SHA=$COMMIT_SHA
+      - RELEASE_IMAGE_FILE=/workspace/verified-image.txt
+    args:
+      - ops/deploy-research-job.sh
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

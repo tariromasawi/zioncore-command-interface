@@ -9,6 +9,16 @@ const router = Router();
 const store = openStore();
 let cache: { expires:number; result:ReturnType<typeof getFeed> }|undefined;
 
+router.get("/command/knowledge/versions",async(req,res)=>{
+  try {
+    const versions=await store.knowledgeVersions();
+    res.set("Cache-Control","public, max-age=60").json({versions});
+  } catch {
+    req.log.error("Append-only knowledge history unavailable");
+    res.status(503).json({error:"Knowledge history is temporarily unavailable."});
+  }
+});
+
 router.get("/command/feed", async (req,res) => {
   try {
     if (!cache || cache.expires<Date.now()) cache={expires:Date.now()+15_000,result:getFeed(store)};

@@ -2,26 +2,35 @@ substitutions:
   _LOCATION: europe-west2
   _AR_REPOSITORY: command-public-images
 steps:
+  - id: compose-immutable-release
+    name: node:24-bookworm-slim
+    entrypoint: node
+    args:
+      - ops/compose-versioned-release.mjs
+      - --manifest
+      - latest
+      - --output
+      - /workspace/composed-release
+      - --source-commit
+      - $COMMIT_SHA
   - id: build-research-image
     name: gcr.io/cloud-builders/docker
     args:
       - build
       - --tag
       - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
-      - .
+      - --label
+      - org.opencontainers.image.revision=$COMMIT_SHA
+      - --build-arg
+      - BUILD_COMMIT=$COMMIT_SHA
+      - /workspace/composed-release
   - id: push-research-image
     name: gcr.io/cloud-builders/docker
     args:
       - push
       - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
-  - id: deploy-research-job
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
-    env:
-      - BRANCH_NAME=$BRANCH_NAME
-    args:
-      - ops/deploy-research-job.sh
-      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
+images:
+  - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 1200s
