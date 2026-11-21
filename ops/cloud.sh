@@ -178,7 +178,7 @@ configure_schedule() {
 configure_federation() {
   local issuer=https://token.actions.githubusercontent.com
   local name="projects/$NUMBER/locations/global/workloadIdentityPools/$POOL"
-  local title="ZionCore Command reviewed releases"
+  local title="ZionCore Command releases"
   local cond="assertion.repository_id == '1379724220' && assertion.repository == '$REPO' && assertion.ref == 'refs/heads/$BRANCH' && assertion.environment == 'command-production'"
   local mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id"
   if ! g iam workload-identity-pools describe "$POOL" --location=global --format='value(name)' >/dev/null 2>&1; then
