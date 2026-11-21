@@ -61,30 +61,3 @@ jobs:
           curl --fail http://127.0.0.1:8080/api/command/knowledge/export | jq -e '.format == "zioncore-command-knowledge" and .entryCount == 2'
           curl --fail http://127.0.0.1:8080/engines/high-freq-purification
           curl --fail http://127.0.0.1:8080/knowledge
-  cloud-access-check:
-    if: github.repository == 'tariromasawi/zioncore-command-interface' && github.ref == 'refs/heads/release/command-public-rebuild'
-    environment: command-production
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Confirm requested Google identity
-        run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Commit: $GITHUB_SHA"
-          echo "Requested Google identity: command-release@gen-lang-client-0266144152.iam.gserviceaccount.com"
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: projects/740460863819/locations/global/workloadIdentityPools/command-github/providers/command-release
-          service_account: command-release@gen-lang-client-0266144152.iam.gserviceaccount.com
-          project_id: gen-lang-client-0266144152
-      - uses: google-github-actions/setup-gcloud@v2
-      - name: Verify read-only Google Cloud access
-        run: |
-          identity="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
-          echo "Authenticated Google identity: $identity"
-          test "$identity" = "command-release@gen-lang-client-0266144152.iam.gserviceaccount.com"
-          bash ops/cloud.sh inventory
