@@ -9,6 +9,11 @@ if (mode==="seed-check") {
   if (!seed) throw new Error("Genesis Seed mount is missing, invalid UTF-8, or does not match its configured checksum");
   logger.info({version:seed.version,checksum:seed.checksum,externalAiCalls:0,paidAiCalls:0},
     "Read-only Genesis Seed mount check passed");
+} else if(mode==="knowledge-archive-check") {
+  const store=openStore();
+  if(!store.production)throw new Error("Knowledge archive checks require the production store");
+  const versions=await store.archiveKnowledgeHistory();
+  logger.info({versions,externalAiCalls:0,paidAiCalls:0},"Append-only knowledge archive verified");
 } else {
   const modes:CycleKind[]=["preview","scheduled","daily-review","archive-exercise","internal-replay"];
   if (!modes.includes(mode as CycleKind)) throw new Error("Unrecognized runner mode");

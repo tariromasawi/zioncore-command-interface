@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "v0001",
+  "sourceCommit": "c09f494802b568fb9ca336d84123713544dd21d6",
+  "manifestSha256": "527aebbf46d867a2b064fcab43148b50af990bef6d46ededb56aa12d19356ce8",
+  "baselineCommit": "c09f494802b568fb9ca336d84123713544dd21d6",
+  "baselineTree": "a6293005e18597460bee2d5fc78ae4e85ebae39b",
+  "seed": {
+    "path": "Genesis seed.ts",
+    "version": "1.1.0",
+    "bytes": 463037,
+    "sha256": "8199eb2b080c6ac56f71443c1506173f8227dc9df58a145801b56e9e2fd538c6"
+  },
+  "activeVersions": []
+}

@@ -1,0 +1,17 @@
+{
+  "title": "ZionCore Command Research Job Deployer",
+  "description": "Update and run only the ZionCore Command research job without delete, cancellation, rollback, or service-wide Cloud Run permissions.",
+  "stage": "GA",
+  "includedPermissions": [
+    "run.executions.get",
+    "run.executions.list",
+    "run.jobs.get",
+    "run.jobs.run",
+    "run.jobs.runWithOverrides",
+    "run.jobs.update",
+    "run.operations.get",
+    "run.operations.list",
+    "run.tasks.get",
+    "run.tasks.list"
+  ]
+}

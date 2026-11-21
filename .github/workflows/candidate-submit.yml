@@ -1,0 +1,199 @@
+name: Submit tested ZionCore candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: Short reason for the candidate
+        required: true
+        type: string
+      candidate_branch:
+        description: Existing candidate/<name> branch, or leave blank to submit a patch
+        required: false
+        type: string
+      candidate_patch:
+        description: Unified diff containing only new version files and its release manifest
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  checks: read
+
+jobs:
+  submit:
+    outputs:
+      pr_number: ${{ steps.pull.outputs.number }}
+      head_sha: ${{ steps.pull.outputs.head_sha }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the trusted release branch
+        env:
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: test "$RELEASE_BRANCH" = "release/command-public-rebuild"
+      - uses: actions/checkout@v7
+        with:
+          ref: release/command-public-rebuild
+          fetch-depth: 0
+      - name: Create or verify the candidate branch without executing candidate code
+        id: candidate
+        uses: actions/github-script@v7
+        env:
+          CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+          BASE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const branchInput = (process.env.CANDIDATE_BRANCH || "").trim();
+            const patch = context.payload.inputs.candidate_patch || "";
+            if (patch.length > 60000) {
+              throw new Error("Inline candidate patches must be under 60,000 characters.");
+            }
+            if (Boolean(branchInput) === Boolean(patch)) {
+              throw new Error("Provide exactly one of candidate_branch or candidate_patch.");
+            }
+            if (context.payload.inputs.title.length > 200) {
+              throw new Error("Candidate title must be 200 characters or fewer.");
+            }
+            let branch = branchInput;
+            if (patch) {
+              branch = `candidate/${process.env.RUN_ID}-${process.env.RUN_ATTEMPT}`;
+              if (!/^candidate\/[0-9]+-[0-9]+$/.test(branch)) {
+                throw new Error("Generated candidate branch name is invalid.");
+              }
+              execFileSync("git", ["switch", "-c", branch]);
+              execFileSync("git", ["apply", "--cached"], { input: patch });
+              execFileSync("git", ["diff", "--cached", "--check"]);
+              execFileSync("git", ["config", "user.name", "ZionCore Candidate Publisher"]);
+              execFileSync("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
+              execFileSync("git", ["commit", "-m", `Submit candidate ${branch.slice("candidate/".length)}`]);
+              const headSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+              execFileSync("node", [
+                "ops/append-only-check.mjs",
+                "--base",
+                process.env.BASE_SHA,
+                "--head",
+                headSha,
+              ]);
+              execFileSync("git", ["push", "origin", `HEAD:refs/heads/${branch}`]);
+            } else if (!/^candidate\/[A-Za-z0-9._-]{1,80}$/.test(branch)) {
+              throw new Error("Candidate branch must start with candidate/ and use safe characters.");
+            }
+            core.setOutput("branch", branch);
+      - name: Open the candidate pull request and start isolated checks
+        id: pull
+        uses: actions/github-script@v7
+        env:
+          CANDIDATE_BRANCH: ${{ steps.candidate.outputs.branch }}
+          CANDIDATE_TITLE: ${{ inputs.title }}
+        with:
+          script: |
+            const head = process.env.CANDIDATE_BRANCH;
+            const title = process.env.CANDIDATE_TITLE;
+            const { data: existing } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              base: "release/command-public-rebuild",
+              head: `${context.repo.owner}:${head}`,
+              per_page: 100,
+            });
+            const pr = existing[0] || (await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              head,
+              base: "release/command-public-rebuild",
+              body: "Candidate changes are stored as immutable version files. The trusted append-only gate and isolated tests will run before automatic activation.",
+            })).data;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "append-only-policy.yml",
+              ref: "release/command-public-rebuild",
+              inputs: { pr_number: String(pr.number) },
+            });
+            core.setOutput("number", String(pr.number));
+            core.setOutput("url", pr.html_url);
+            core.setOutput("head_sha", pr.head.sha);
+
+  activate-tested-candidate:
+    needs: submit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    steps:
+      - name: Wait for trusted policy and isolated tests, then merge exactly that commit
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.submit.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.submit.outputs.head_sha }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            const headSha = process.env.HEAD_SHA;
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1
+                || !/^[a-f0-9]{40}$/.test(headSha || "")) {
+              throw new Error("The candidate pull request identity is invalid.");
+            }
+            const expectedCheck = `zioncore-pr-${prNumber}-${headSha}`;
+            let passed = false;
+            for (let attempt = 0; attempt < 150; attempt++) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              if (pr.base.ref !== "release/command-public-rebuild"
+                  || pr.head.sha !== headSha
+                  || pr.state !== "open") {
+                throw new Error("The candidate PR changed while its checks were running.");
+              }
+              const { data: branch } = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: "heads/release/command-public-rebuild",
+              });
+              if (pr.base.sha !== branch.object.sha) {
+                throw new Error("The release branch advanced; rerun the candidate checks against its new base.");
+              }
+              const { data } = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: headSha,
+                per_page: 100,
+              });
+              const check = data.check_runs
+                .filter((item) => item.name === "ZionCore append-only release"
+                  && item.external_id === expectedCheck)
+                .sort((left, right) => new Date(right.started_at || 0) - new Date(left.started_at || 0))[0];
+              if (check?.status === "completed") {
+                if (check.conclusion !== "success") {
+                  throw new Error(`Trusted candidate checks concluded ${check.conclusion}.`);
+                }
+                passed = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 8000));
+            }
+            if (!passed) {
+              throw new Error("Timed out waiting for the trusted candidate check to pass.");
+            }
+            const merge = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              sha: headSha,
+              merge_method: "squash",
+            });
+            if (!merge.data.merged) {
+              throw new Error("GitHub did not confirm the tested candidate merge.");
+            }
+            core.info(`Merged tested candidate ${headSha} as ${merge.data.sha}.`);

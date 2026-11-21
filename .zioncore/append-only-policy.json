@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "c09f494802b568fb9ca336d84123713544dd21d6",
+  "baselineTree": "a6293005e18597460bee2d5fc78ae4e85ebae39b",
+  "seed": {
+    "path": "Genesis seed.ts",
+    "version": "1.1.0",
+    "bytes": 463037,
+    "sha256": "8199eb2b080c6ac56f71443c1506173f8227dc9df58a145801b56e9e2fd538c6"
+  },
+  "versionRoot": "versions",
+  "manifestRoot": "release-manifests",
+  "maximumSourceBytes": 20971520,
+  "maximumActiveSourceBytes": 209715200,
+  "protectedTargets": [
+    ".github/",
+    ".zioncore/",
+    "ops/",
+    "release-manifests/",
+    "versions/",
+    "Genesis seed.ts",
+    "zioncore-release.json",
+    "artifacts/api-server/src/command/genesis.ts",
+    "artifacts/api-server/src/command/dailyResearch.ts",
+    "artifacts/api-server/src/command/store.ts",
+    "artifacts/api-server/src/command/knowledgeArchive.ts",
+    "artifacts/api-server/src/command/knowledgeVersions.ts",
+    "artifacts/api-server/src/command/knowledge.ts",
+    "artifacts/api-server/src/command/cycle.ts",
+    "artifacts/api-server/src/routes/command.ts",
+    "artifacts/api-server/src/jobMain.ts",
+    "artifacts/zioncore-command/src/pages/knowledge.tsx",
+    "Dockerfile",
+    "Dockerfile.",
+    "replit.md"
+  ]
+}

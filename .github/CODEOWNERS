@@ -1,0 +1,16 @@
+/.github/ @tariromasawi
+/.zioncore/ @tariromasawi
+/ops/ @tariromasawi
+/Genesis\ seed.ts @tariromasawi
+/Dockerfile @tariromasawi
+/artifacts/api-server/src/command/genesis.ts @tariromasawi
+/artifacts/api-server/src/command/dailyResearch.ts @tariromasawi
+/artifacts/api-server/src/command/store.ts @tariromasawi
+/artifacts/api-server/src/command/knowledge.ts @tariromasawi
+/artifacts/api-server/src/command/knowledgeArchive.ts @tariromasawi
+/artifacts/api-server/src/command/knowledgeVersions.ts @tariromasawi
+/artifacts/api-server/src/command/cycle.ts @tariromasawi
+/artifacts/api-server/src/routes/command.ts @tariromasawi
+/artifacts/zioncore-command/src/pages/knowledge.tsx @tariromasawi
+/artifacts/api-server/src/jobMain.ts @tariromasawi
+/release-manifests/v0001.json @tariromasawi

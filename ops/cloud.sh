@@ -16,10 +16,13 @@ WEB=zioncore-command-public-web
 RUNNER=zioncore-command-ops
 DAILY=zioncore-command-research
 GENESIS_BUCKET="zioncore-command-genesis-seed-$NUMBER"
+KNOWLEDGE_BUCKET="zioncore-command-knowledge-$NUMBER"
 GENESIS_OBJECT=approved/1.1.0/genesis-seed.ts
 GENESIS_VERSION=1.1.0
 GENESIS_SHA256=8199eb2b080c6ac56f71443c1506173f8227dc9df58a145801b56e9e2fd538c6
 GENESIS_BYTES=463037
+FIRESTORE_ROLE=ZionCoreCommandFirestoreWriter
+FIRESTORE_ROLE_NAME="projects/$PROJECT/roles/$FIRESTORE_ROLE"
 GENESIS_PATH="/mnt/genesis/$GENESIS_OBJECT"
 POOL=command-github
 PROVIDER=command-release
@@ -122,18 +125,18 @@ stage_release() {
   g run deploy "$WEB" --region="$REGION" --image="$command_image" --service-account="command-web$SA_SUFFIX" \
     --min=0 --max=3 --concurrency=40 --timeout=20s --memory=512Mi --cpu=1 --port=8080 \
     --labels="zioncore-command=public-release,commit=$commit" "${public[@]}" \
-    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_ENABLE_INTAKE=1"
+    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_KNOWLEDGE_ARCHIVE_BUCKET=$KNOWLEDGE_BUCKET,COMMAND_ENABLE_INTAKE=1"
   g run jobs deploy "$RUNNER" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
     --command=node --args=dist/jobMain.mjs,scheduled --task-timeout=180s --max-retries=1 \
     --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
     --labels="zioncore-command=public-release,commit=$commit" \
-    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB"
+    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_KNOWLEDGE_ARCHIVE_BUCKET=$KNOWLEDGE_BUCKET"
   if [[ "$mode" == bootstrap ]]; then
     g run jobs deploy "$DAILY" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
       --command=node --args=dist/jobMain.mjs,daily-review --task-timeout=180s --max-retries=1 \
       --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
       --labels="zioncore-command=public-release,commit=$commit" \
-      --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_GENESIS_PATH=$GENESIS_PATH,COMMAND_GENESIS_VERSION=$GENESIS_VERSION,COMMAND_GENESIS_SHA256=$GENESIS_SHA256,COMMAND_ENABLE_GENESIS_AI=0,COMMAND_ENABLE_DAILY_GENESIS=0,COMMAND_ENABLE_PAID_AI=0,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0" \
+      --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_KNOWLEDGE_ARCHIVE_BUCKET=$KNOWLEDGE_BUCKET,COMMAND_GENESIS_PATH=$GENESIS_PATH,COMMAND_GENESIS_VERSION=$GENESIS_VERSION,COMMAND_GENESIS_SHA256=$GENESIS_SHA256,COMMAND_ENABLE_GENESIS_AI=0,COMMAND_ENABLE_DAILY_GENESIS=0,COMMAND_ENABLE_PAID_AI=0,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0" \
       --add-volume="name=genesis-seed,type=cloud-storage,bucket=$GENESIS_BUCKET,readonly=true" \
       --add-volume-mount="volume=genesis-seed,mount-path=/mnt/genesis"
   else
@@ -252,9 +255,14 @@ if [[ "$mode" == bootstrap ]]; then
   g firestore fields ttls update expiresAt --collection-group=commandInbox --database="$INBOX" --enable-ttl --async
   for sa in command-web command-runner command-builder command-scheduler command-release; do ensure_account "$sa"; done
   database_access command-web "$DB" roles/datastore.viewer
-  database_access command-web "$INBOX" roles/datastore.user
-  database_access command-runner "$INBOX" roles/datastore.user
-  database_access command-runner "$DB" roles/datastore.user
+  if g iam roles describe "$FIRESTORE_ROLE" >/dev/null 2>&1; then
+    g iam roles update "$FIRESTORE_ROLE" --file=ops/roles/command-firestore-no-delete.json
+  else
+    g iam roles create "$FIRESTORE_ROLE" --file=ops/roles/command-firestore-no-delete.json
+  fi
+  database_access command-web "$INBOX" "$FIRESTORE_ROLE_NAME"
+  database_access command-runner "$INBOX" "$FIRESTORE_ROLE_NAME"
+  database_access command-runner "$DB" "$FIRESTORE_ROLE_NAME"
   if ! g artifacts repositories describe "$REPOSITORY" --location="$REGION" --format='value(name)' >/dev/null 2>&1; then
     g artifacts repositories create "$REPOSITORY" --repository-format=docker --location="$REGION" \
       --description="ZionCore Command public release" --immutable-tags
@@ -265,6 +273,19 @@ if [[ "$mode" == bootstrap ]]; then
     g storage buckets create "gs://$BUCKET" --location="$REGION" --uniform-bucket-level-access --public-access-prevention
     g storage buckets update "gs://$BUCKET" --update-labels=zioncore-command=public-release
   fi
+  if ! g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(name)' >/dev/null 2>&1; then
+    g storage buckets create "gs://$KNOWLEDGE_BUCKET" --location="$REGION" \
+      --uniform-bucket-level-access --public-access-prevention
+  fi
+  knowledge_location="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(location)')"
+  knowledge_pap="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(iamConfiguration.publicAccessPrevention)')"
+  knowledge_ubla="$(g storage buckets describe "gs://$KNOWLEDGE_BUCKET" --format='value(iamConfiguration.uniformBucketLevelAccess.enabled)')"
+  [[ "${knowledge_location,,}" == "$REGION" && "${knowledge_pap,,}" == enforced && "${knowledge_ubla,,}" == true ]] ||
+    die "Knowledge archive bucket must remain private with uniform bucket-level access in $REGION."
+  g storage buckets update "gs://$KNOWLEDGE_BUCKET" --update-labels=zioncore-command=public-release,purpose=knowledge-archive
+  g storage buckets add-iam-policy-binding "gs://$KNOWLEDGE_BUCKET" --member="serviceAccount:command-runner$SA_SUFFIX" --role=roles/storage.objectCreator
+  g storage buckets add-iam-policy-binding "gs://$KNOWLEDGE_BUCKET" --member="serviceAccount:command-runner$SA_SUFFIX" --role=roles/storage.objectViewer
+  g storage buckets add-iam-policy-binding "gs://$KNOWLEDGE_BUCKET" --member="serviceAccount:command-web$SA_SUFFIX" --role=roles/storage.objectViewer
   [[ "$(g storage buckets describe "gs://$BUCKET" --format='value(labels.zioncore-command)')" == public-release ]] ||
     die "Existing build bucket is not marked as Command-owned."
   g storage buckets add-iam-policy-binding "gs://$BUCKET" --member="serviceAccount:command-builder$SA_SUFFIX" --role=roles/storage.objectViewer
@@ -273,6 +294,11 @@ if [[ "$mode" == bootstrap ]]; then
 fi
 
 stage_release
+if [[ "$mode" == bootstrap ]]; then
+  g run jobs execute "$DAILY" --region="$REGION" \
+    --args=dist/jobMain.mjs,knowledge-archive-check --wait
+fi
+
 if [[ "$mode" == bootstrap ]]; then
   for job in "$RUNNER" "$DAILY"; do
     g run jobs add-iam-policy-binding "$job" --region="$REGION" --member="serviceAccount:command-scheduler$SA_SUFFIX" --role=roles/run.invoker

@@ -1,0 +1,20 @@
+{
+  "title": "ZionCore Command Firestore Writer Without Delete",
+  "description": "Read, create, and update Command records without entity or database deletion permissions.",
+  "stage": "GA",
+  "includedPermissions": [
+    "datastore.databases.get",
+    "datastore.databases.getMetadata",
+    "datastore.databases.list",
+    "datastore.entities.allocateIds",
+    "datastore.entities.create",
+    "datastore.entities.get",
+    "datastore.entities.list",
+    "datastore.entities.update",
+    "datastore.namespaces.get",
+    "datastore.namespaces.list",
+    "datastore.schemas.list",
+    "resourcemanager.projects.get",
+    "resourcemanager.projects.list"
+  ]
+}

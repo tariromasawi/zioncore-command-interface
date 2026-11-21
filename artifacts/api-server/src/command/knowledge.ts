@@ -30,6 +30,15 @@ function knowledgeId(methodId:string,version:string,checksum:string) {
   return sha(Buffer.from(`ZionCore Command knowledge v1\n${methodId}\n${version}\n${checksum}`,"utf8"));
 }
 
+function canonicalJson(value:unknown):string {
+  if(Array.isArray(value))return `[${value.map(canonicalJson).join(",")}]`;
+  if(value && typeof value==="object") {
+    return `{${Object.entries(value).sort(([a],[b])=>a.localeCompare(b))
+      .map(([key,item])=>`${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export function learnContinuity(runId:string,at=new Date()):LearningEntry {
   const methodHash=methodChecksum(continuityMethod);
   return {
@@ -78,7 +87,7 @@ export function verifyMethod(entry:LearningEntry) {
     && methodChecksum(entry.method)===entry.methodChecksum
     && entry.version===expected.version
     && entry.method===expected.method
-    && JSON.stringify(entry.evidence)===JSON.stringify([expected.evidence]);
+    && canonicalJson(entry.evidence)===canonicalJson([expected.evidence]);
 }
 
 export function evaluateEvolutionMethod(entry:LearningEntry) {
