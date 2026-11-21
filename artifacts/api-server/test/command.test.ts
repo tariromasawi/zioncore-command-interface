@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { archiveExercise, benchmark, safePublicResourceUrl, safeSuggestion, sha } from "../src/command/engines";
 import { getFeed, projectRun, runCycle } from "../src/command/cycle";
-import { askGenesis, configuredModels, loadSeed, publishedCandidate, type Model } from "../src/command/genesis";
+import { askGenesis, configuredModels, loadSeed, paidAiMonthlyCap, publishedCandidate, type Model } from "../src/command/genesis";
 import { openStore } from "../src/command/store";
 import { evaluateEvolutionMethod, exportSnapshot, learnContinuity, learnEvolution, verifyMethod, verifySnapshot } from "../src/command/knowledge";
 
@@ -235,6 +235,15 @@ test("paid AI requires approved Seed configuration, explicit opt-in and a bounde
   assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"0"}).some(model=>model.tier==="paid"),false);
   assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"1000"}).some(model=>model.tier==="paid"),true);
   assert.equal(configuredModels({...base,COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"not-a-number"}).some(model=>model.tier==="paid"),false);
+});
+
+test("paid allowance is capped at the approved launch amount and expires after January",()=>{
+  const env={COMMAND_ENABLE_PAID_AI:"1",COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"30000000",
+    COMMAND_PAID_AI_BUDGET_THROUGH_MONTH:"2027-01"};
+  assert.equal(paidAiMonthlyCap(env,new Date("2027-01-31T23:59:59Z")),30_000_000);
+  assert.equal(paidAiMonthlyCap(env,new Date("2027-02-01T00:00:00Z")),0);
+  assert.equal(paidAiMonthlyCap({...env,COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"30000001"},
+    new Date("2026-11-21T12:00:00Z")),0);
 });
 
 test("paid AI monthly reservations gate token counts and concurrent generations",async()=>{

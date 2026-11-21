@@ -18,10 +18,16 @@ const maxOutput = 256;
 const task = "Classify the next benign, public documentation research question: how should a library compare two authorized archive inventory methods? Return just a short research category. Do not request actions or call tools.";
 const validInt = (n:number) => Number.isSafeInteger(n) && n>=0;
 
-export function paidAiMonthlyCap(env=process.env) {
+export function paidAiMonthlyCap(env=process.env, now=new Date()) {
   if(env.COMMAND_ENABLE_PAID_AI!=="1")return 0;
+  const throughMonth=env.COMMAND_PAID_AI_BUDGET_THROUGH_MONTH;
+  if(throughMonth!==undefined) {
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(throughMonth)||Number.isNaN(now.getTime()))return 0;
+    const currentMonth=now.toISOString().slice(0,7);
+    if(currentMonth>throughMonth)return 0;
+  }
   const cap=Number(env.COMMAND_PAID_AI_MONTHLY_CAP_MICROS);
-  return validInt(cap)&&cap>0?cap:0;
+  return validInt(cap)&&cap>0&&cap<=30_000_000?cap:0;
 }
 
 export async function loadSeed(env=process.env): Promise<Seed|null> {

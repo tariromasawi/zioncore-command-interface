@@ -24,6 +24,8 @@ jobs:
           COMMAND_GENESIS_TEST_SEED_PATH: ${{ github.workspace }}/Genesis seed.ts
       - run: bash -n ops/cloud.sh
       - run: bash -n ops/prepare-genesis-seed.sh
+      - run: bash -n ops/prepare-cloudbuild-research.sh
+      - run: bash -n ops/deploy-research-job.sh
       - run: docker build -t zioncore-command:ci .
       - name: Check the approved Seed read-only mount with AI disabled
         run: |

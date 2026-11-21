@@ -74,7 +74,7 @@ test("daily research verifies full bytes on count, retries and paid fallback and
       return String(url).includes("-paid-")?ok():Response.json({}, {status:503});
     };
     const result=await researchDaily({kind:"daily-review",runId:"daily-2026-01-01",models:[free,paid],ledger:f.store,env:f.env,request});
-    assert.ok(result.record && validDailyRecord(result.record));
+    assert.ok(result.record && validDailyRecord(result.record),result.note);
     assert.deepEqual(calls,["free:count","free:generate","free:generate","paid:count","paid:generate"]);
     assert.equal(result.externalAiCalls,5);assert.equal(result.paidAiCalls,1);assert.equal(result.costMicros,110);
     const metrics=await f.store.allRunMetrics();
@@ -244,8 +244,33 @@ test("paid budget is persistent and bounded across concurrent and repeated runs"
     assert.equal(calls,before);
     await researchDaily({kind:"daily-review",runId:"daily-2026-01-02",models:[paid],ledger:openStore(env),env,request});
     assert.ok(calls>before);
-    const disabled=await researchDaily({kind:"daily-review",runId:"daily-2026-01-01",models:[paid],ledger:f.store,env:{...env,COMMAND_PAID_AI_EXECUTION_CAP_MICROS:"50001"},request});
+    const disabled=await researchDaily({kind:"daily-review",runId:"daily-2026-01-01",models:[paid],ledger:f.store,
+      env:{...env,COMMAND_PAID_AI_EXECUTION_CAP_MICROS:"1000001"},request});
     assert.equal(disabled.externalAiCalls,0);
+  } finally {await rm(f.dir,{recursive:true,force:true});}
+});
+
+test("full-context paid Gemini retries fit the configured execution cap and monthly budget",async()=>{
+  const f=await fixture();
+  try {
+    const env={...f.env,COMMAND_PAID_AI_EXECUTION_CAP_MICROS:"9000000",
+      COMMAND_PAID_AI_MONTHLY_CAP_MICROS:"30000000"};
+    const model:Model={...paid,name:"gemini-3.5-flash-lite",context:1_048_576,
+      inputMicrosPerMillion:300_000,outputMicrosPerMillion:2_500_000,billableOutputLimit:256};
+    let generations=0;
+    const request:typeof fetch=async url=>{
+      return String(url).endsWith(":countTokens")
+      ?Response.json({totalTokens:400_000})
+      :++generations===1?Response.json({}, {status:503}):Response.json({
+        candidates:[{finishReason:"STOP",content:{parts:[{text:'{"version":1,"method":"match-by-id"}'}]}}],
+        usageMetadata:{promptTokenCount:400_000,candidatesTokenCount:10}});
+    };
+    const result=await researchDaily({kind:"daily-review",runId:"daily-2026-01-04",models:[model],ledger:f.store,env,request});
+    assert.ok(result.record && validDailyRecord(result.record),result.note);
+    assert.equal(result.externalAiCalls,3);
+    assert.equal(result.paidAiCalls,2);
+    const metrics=await f.store.allRunMetrics();
+    assert.ok(metrics.monthlyPaidAiReservedMicros+metrics.monthlyPaidAiSpendMicros<=9_000_000);
   } finally {await rm(f.dir,{recursive:true,force:true});}
 });
 

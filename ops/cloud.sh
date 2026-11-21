@@ -128,13 +128,18 @@ stage_release() {
     --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
     --labels="zioncore-command=public-release,commit=$commit" \
     --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB"
-  g run jobs deploy "$DAILY" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
-    --command=node --args=dist/jobMain.mjs,daily-review --task-timeout=180s --max-retries=1 \
-    --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
-    --labels="zioncore-command=public-release,commit=$commit" \
-    --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_GENESIS_PATH=$GENESIS_PATH,COMMAND_GENESIS_VERSION=$GENESIS_VERSION,COMMAND_GENESIS_SHA256=$GENESIS_SHA256,COMMAND_ENABLE_GENESIS_AI=0,COMMAND_ENABLE_DAILY_GENESIS=0,COMMAND_ENABLE_PAID_AI=0,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0" \
-    --add-volume="name=genesis-seed,type=cloud-storage,bucket=$GENESIS_BUCKET,readonly=true" \
-    --add-volume-mount="volume=genesis-seed,mount-path=/mnt/genesis"
+  if [[ "$mode" == bootstrap ]]; then
+    g run jobs deploy "$DAILY" --region="$REGION" --image="$command_image" --service-account="command-runner$SA_SUFFIX" \
+      --command=node --args=dist/jobMain.mjs,daily-review --task-timeout=180s --max-retries=1 \
+      --tasks=1 --parallelism=1 --cpu=1 --memory=512Mi \
+      --labels="zioncore-command=public-release,commit=$commit" \
+      --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,COMMAND_STORE=firestore,FIRESTORE_DATABASE=$DB,COMMAND_GENESIS_PATH=$GENESIS_PATH,COMMAND_GENESIS_VERSION=$GENESIS_VERSION,COMMAND_GENESIS_SHA256=$GENESIS_SHA256,COMMAND_ENABLE_GENESIS_AI=0,COMMAND_ENABLE_DAILY_GENESIS=0,COMMAND_ENABLE_PAID_AI=0,COMMAND_PAID_AI_MONTHLY_CAP_MICROS=0" \
+      --add-volume="name=genesis-seed,type=cloud-storage,bucket=$GENESIS_BUCKET,readonly=true" \
+      --add-volume-mount="volume=genesis-seed,mount-path=/mnt/genesis"
+  else
+    # Do not reset paid-AI gates, Secret Manager, or the read-only Seed mount on a routine image update.
+    g run jobs update "$DAILY" --region="$REGION" --image="$command_image"
+  fi
   local url
   url="$(g run services describe "$WEB" --region="$REGION" --format='value(status.url)')"
   [[ "$url" == https://*.run.app ]] || die "Cloud Run did not return its public URL."

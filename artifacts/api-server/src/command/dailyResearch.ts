@@ -49,9 +49,9 @@ export async function researchDaily({kind,runId,models,ledger,env,request}:{
     return result("Daily AI research is disabled for this run.");
   const seed=await loadSeed(env);
   if(!seed) return result("Approved Genesis bytes could not be verified.");
-  const executionCap=Number(env.COMMAND_PAID_AI_EXECUTION_CAP_MICROS);
-  const cap=integer(executionCap)&&executionCap>0&&executionCap<=50_000?executionCap:0;
   const monthlyCap=paidAiMonthlyCap(env);
+  const executionCap=Number(env.COMMAND_PAID_AI_EXECUTION_CAP_MICROS);
+  const cap=integer(executionCap)&&executionCap>0&&executionCap<=Math.min(monthlyCap,15_000_000)?executionCap:0;
   const seenKeys=new Set<string>();
   for(const model of models) {
     if(!/^gemini-[a-zA-Z0-9.-]+$/.test(model.name) || !model.key || seenKeys.has(model.key)

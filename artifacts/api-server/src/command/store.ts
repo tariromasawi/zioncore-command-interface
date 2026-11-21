@@ -166,7 +166,7 @@ function sqliteStore(path: string, monthlyPaidAiAllowanceMicros:number): Command
     async reserve(id, amount, cap, scope, scopeCap) {
       return tx(() => {
         if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
-        if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>50_000))return false;
+        if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>15_000_000))return false;
         const day = billingMonth();
         const budget = getSpend(day);
         if (budget.reserved + budget.settled + amount > cap) return false;
@@ -339,7 +339,7 @@ function firestoreStore(monthlyPaidAiAllowanceMicros:number): CommandStore {
     },
     async reserve(id, amount, cap, scope, scopeCap) {
       if(!Number.isSafeInteger(amount)||amount<=0||!Number.isSafeInteger(cap)||cap<=0)return false;
-      if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>50_000))return false;
+      if(scope!==undefined && (!/^daily-\d{4}-\d{2}-\d{2}$/.test(scope) || !Number.isSafeInteger(scopeCap) || scopeCap!<=0 || scopeCap!>15_000_000))return false;
       const day = billingMonth(), ref = spending.doc(day);
       return db.runTransaction(async tr => {
         const budget = (await tr.get(ref)).data() as Budget | undefined ?? { reserved:0,settled:0,tokens:0 };

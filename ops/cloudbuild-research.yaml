@@ -1,0 +1,27 @@
+substitutions:
+  _LOCATION: europe-west2
+  _AR_REPOSITORY: command-public-images
+steps:
+  - id: build-research-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag
+      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
+      - .
+  - id: push-research-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
+  - id: deploy-research-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env:
+      - BRANCH_NAME=$BRANCH_NAME
+    args:
+      - ops/deploy-research-job.sh
+      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPOSITORY}/command:$COMMIT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

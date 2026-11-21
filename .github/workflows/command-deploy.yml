@@ -1,15 +1,6 @@
-name: Deploy reviewed ZionCore Command release
+name: Read-only ZionCore Command Google Cloud check
 on:
   workflow_dispatch:
-    inputs:
-      operation:
-        description: Read-only access check first; deploy only after it succeeds
-        type: choice
-        required: true
-        default: check
-        options:
-          - check
-          - deploy
 permissions:
   contents: read
   id-token: write
@@ -17,13 +8,13 @@ concurrency:
   group: command-production
   cancel-in-progress: false
 jobs:
-  check:
-    if: github.repository == 'tariromasawi/zioncore-command-interface' && github.ref == 'refs/heads/release/command-public-rebuild' && inputs.operation == 'check'
+  inventory:
+    if: github.repository == 'tariromasawi/zioncore-command-interface' && github.ref == 'refs/heads/release/command-public-rebuild'
     environment: command-production
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Confirm requested deployment identity
+      - name: Confirm requested read-only identity
         run: |
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Branch: $GITHUB_REF_NAME"
@@ -41,23 +32,3 @@ jobs:
           echo "Authenticated Google identity: $identity"
           test "$identity" = "command-release@gen-lang-client-0266144152.iam.gserviceaccount.com"
           bash ops/cloud.sh inventory
-  deploy:
-    environment: command-production
-    runs-on: ubuntu-latest
-    if: github.repository == 'tariromasawi/zioncore-command-interface' && github.ref == 'refs/heads/release/command-public-rebuild' && inputs.operation == 'deploy'
-    steps:
-      - uses: actions/checkout@v7
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: projects/740460863819/locations/global/workloadIdentityPools/command-github/providers/command-release
-          service_account: command-release@gen-lang-client-0266144152.iam.gserviceaccount.com
-          project_id: gen-lang-client-0266144152
-      - uses: google-github-actions/setup-gcloud@v2
-      - name: Confirm deployment identity and current access
-        run: |
-          identity="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
-          echo "Authenticated Google identity: $identity"
-          test "$identity" = "command-release@gen-lang-client-0266144152.iam.gserviceaccount.com"
-          bash ops/cloud.sh inventory
-      - name: Deploy the reviewed release and verify the private Seed mount
-        run: bash ops/cloud.sh deploy "$GITHUB_SHA"
